@@ -32,6 +32,7 @@
 5. **Service Discovery** — Consul
 6. **Observability** — логи, метрики, трейсинг
 7. **Circuit Breaker** — отказоустойчивость при межсервисных вызовах
+8. **Hexagonal architecture** — внутри каждого бизнес-сервиса: домен в центре, порты (интерфейсы), адаптеры (gRPC, Postgres, Kafka, SMTP)
 
 ## 2. Архитектура системы
 
@@ -76,13 +77,343 @@
 
 Итого **5 процессов**: gateway + 4 бизнес-сервиса.
 
+### 2.2. gRPC-контракты: один proto на всех
+
+Proto **не принадлежит** сервису. Это публичный контракт между процессами: auth-service его реализует (server), gateway его вызывает (client). Если положить `.proto` только в `services/auth-service/`, gateway либо тянет весь модуль сервиса (БД, внутренности), либо копирует файлы — оба варианта плохие.
+
+В монорепе стандарт — **proto отдельно, сгенерированный Go — отдельный модуль**:
+
+```
+task-tracker/
+├── api/                              # protobuf-модуль (не Go)
+│   ├── buf.yaml
+│   ├── buf.gen.yaml
+│   ├── auth/auth.proto
+│   ├── task/task.proto
+│   ├── notification/notification.proto
+│   └── scheduler/scheduler.proto
+├── pkg/api/                          # сгенерированный Go, отдельный модуль
+│   ├── go.mod                        # github.com/Iposhka54/task-tracker/pkg/api
+│   ├── auth/                         # auth.pb.go, auth_grpc.pb.go
+│   ├── task/
+│   ├── notification/
+│   └── scheduler/
+├── services/
+│   ├── api-gateway/                  # require pkg/api → gRPC client
+│   ├── auth-service/                 # require pkg/api → gRPC server
+│   ├── task-service/
+│   ├── notification-service/
+│   └── scheduler-service/
+└── go.work
+```
+
+`api/` нельзя сделать Go-модулем «как есть»: `.proto` не импортируется через `import`. Сервисы импортируют **сгенерированные** пакеты из `pkg/api`.
+
+**Кто что делает:**
+
+| Роль | Import | Что пишет |
+|---|---|---|
+| Auth Service | `github.com/Iposhka54/task-tracker/pkg/api/auth` | `authpb.UnimplementedAuthServiceServer` |
+| API Gateway | тот же пакет | `authpb.NewAuthServiceClient(conn)` |
+| Другой сервис | тот же пакет | только client, без импорта `services/auth-service` |
+
+Связка пути proto → Go-импорт:
+
+```
+api/auth/auth.proto
+  package auth
+  option go_package = "github.com/Iposhka54/task-tracker/pkg/api/auth;authpb"
+
+buf generate (из api/)  →  pkg/api/auth/auth.pb.go
+                           pkg/api/auth/auth_grpc.pb.go
+
+сервис:
+  import authpb "github.com/Iposhka54/task-tracker/pkg/api/auth"
+```
+
+`;authpb` — имя Go-пакета, чтобы не пересекаться с доменным `auth`.
+
+Версию в путь (`auth/v1`) не кладём: все клиенты в этом монорепо, контракт меняем аддитивно. Если когда-нибудь понадобится несовместимый rewrite — заведём рядом `api/auth2/` (или тогда уже `v2`), старый пакет оставим жить, пока его не выпилим. До этого момента `buf breaking` ловит случайные поломки.
+
+`go.work` резолвит локальный модуль. В каждом сервисе всё равно нужен `require` **и** `replace`: workspace не попадает в Docker-контекст одного сервиса.
+
+```
+# go.work
+go 1.25.5
+
+use (
+    ./pkg/api
+    ./services/api-gateway
+    ./services/auth-service
+    ./services/task-service
+    ./services/notification-service
+    ./services/scheduler-service
+)
+```
+
+```
+# services/auth-service/go.mod
+module github.com/Iposhka54/task-tracker/services/auth-service
+
+go 1.25.5
+
+require github.com/Iposhka54/task-tracker/pkg/api v0.0.0
+
+replace github.com/Iposhka54/task-tracker/pkg/api => ../../pkg/api
+```
+
+Генерация из `api/`: `buf generate`.
+
+```yaml
+# api/buf.yaml
+version: v2
+
+# api/buf.gen.yaml
+version: v2
+plugins:
+  - local: protoc-gen-go
+    out: ../pkg/api
+    opt: [paths=source_relative]
+  - local: protoc-gen-go-grpc
+    out: ../pkg/api
+    opt: [paths=source_relative]
+```
+
+`paths=source_relative` кладёт `auth/auth.proto` в `pkg/api/auth/`.
+
+Dockerfile сервиса собирается **из корня репо**, иначе `replace ../../pkg/api` не найдёт модуль:
+
+```dockerfile
+COPY pkg/api ./pkg/api
+COPY services/auth-service ./services/auth-service
+WORKDIR /src/services/auth-service
+RUN go build -o /service ./cmd
+```
+
+**Gateway не проксирует gRPC байты как есть.** Снаружи REST/JSON, внутри gRPC. Типичный handler:
+
+```go
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+    var req LoginJSON
+    json.NewDecoder(r.Body).Decode(&req)
+
+    resp, err := h.users.Login(r.Context(), &authpb.LoginRequest{
+        Email:    req.Email,
+        Password: req.Password,
+    })
+    // JSON-ответ клиенту
+}
+```
+
+Альтернатива — аннотации `google.api.http` + `grpc-gateway`, тогда REST генерируется из proto. Имеет смысл, если HTTP — тонкая проекция RPC. Для BFF с rate limit по путям, своим JSON и JWT на gateway проще ручной маппинг.
+
+**Правила совместимости:** поля в proto только добавлять, номера (`= 1`) не переиспользовать, breaking change ловить `buf breaking`. Отдельный `v2` не заводим, пока все потребители в этом репозитории.
+
+**Чего не делать:**
+- не класть `.proto` только внутрь сервиса-владельца
+- не импортировать `services/auth-service` из gateway
+- не генерировать stubs отдельно в каждом сервисе из копий proto (разъедутся)
+- не светить внутренние DTO/модели БД в proto — контракт отдельно от доменной модели
+
+### 2.3. Гексагональная архитектура (порты и адаптеры)
+
+Межсервисная нарезка — это процессы. **Внутри** user/task/notification/scheduler — гексагон: бизнес-логика не знает ни про gRPC, ни про Postgres.
+
+```
+                    inbound adapters              outbound adapters
+                 (driving, вызывают ядро)      (driven, ядро вызывает их)
+
+   ┌────────────┐     ┌────────────┐           ┌────────────┐  ┌────────────┐
+   │ gRPC server│     │Kafka consumer│         │  Postgres  │  │   Redis    │
+   └─────┬──────┘     └──────┬─────┘           └─────▲──────┘  └─────▲──────┘
+         │                   │                       │               │
+         ▼                   ▼                       │               │
+   ┌──────────┐        ┌──────────┐            ┌─────┴──────┐  ┌─────┴──────┐
+   │ inbound  │        │ inbound  │            │ outbound   │  │ outbound   │
+   │ port     │───────►│  app /   │───────────►│ port       │  │ port       │
+   │ (use     │        │ use case │            │ (repo,     │  │ (cache,    │
+   │  case)   │        │          │            │  publisher)│  │  storage)  │
+   └──────────┘        └──────────┘            └────────────┘  └────────────┘
+                              │
+                              │                 domain: User, Task, errors
+                              └───────────────► без импортов инфраструктуры
+```
+
+**Порт** — интерфейс на границе ядра. **Адаптер** — реализация, которая говорит с внешним миром.
+
+| Вид | Кто инициирует | Примеры в TaskFlow |
+|---|---|---|
+| **Inbound (driving)** | внешний мир → ядро | gRPC-сервер, Kafka consumer, cron в scheduler |
+| **Outbound (driven)** | ядро → внешний мир | Postgres, Redis, MinIO, Kafka producer, SMTP |
+
+Один и тот же use case можно дернуть с gRPC и из consumer'а — ядро одно.
+
+**Правило зависимостей:** стрелки только внутрь.
+
+```
+cmd/main.go          → собирает всё
+adapter/grpc         → port + domain + pkg/api
+adapter/postgres     → domain  (и при желании port для var _ port.UserRepo = ...)
+service              → port + domain
+port                 → domain
+domain               → никого
+```
+
+Репозиторий — **не** отдельный слой и не пакет `repository/`. Это outbound-порт (`port.UserRepo`) плюс адаптер (`adapter/postgres`). «Сервис» в гексагоне — use case (`internal/service`), не gRPC-сервер.
+
+### Пакеты: плоско, по роли, без inbound/outbound
+
+В Java часто делают `port/inbound` и `adapter/outbound/postgres`. В Go это даёт пакеты `inbound` / `outbound` / `grpc` (конфликт со stdlib) и импорты вроде `inbound.AuthService`. Не нужно.
+
+Четыре пакета ядра + адаптер на каждую технологию:
+
+```
+auth-service/
+├── cmd/main.go                      # composition root, единственное место wiring
+└── internal/
+    ├── domain/                      # package domain
+    │   ├── user.go
+    │   ├── session.go
+    │   └── errors.go
+    ├── port/                        # package port — все интерфейсы
+    │   ├── auth.go                  # inbound: что вызывают адаптеры входа
+    │   ├── user_repo.go             # outbound
+    │   ├── token_store.go
+    │   ├── hasher.go
+    │   └── events.go
+    ├── service/                     # package service — use cases
+    │   ├── auth.go                  # реализует port.Auth
+    │   └── profile.go
+    └── adapter/
+        ├── grpc/                    # package grpcadapter  (не package grpc)
+        │   ├── auth.go
+        │   └── map.go               # proto ↔ domain
+        ├── postgres/                # package postgres — реализует *Repo
+        │   └── user_repo.go
+        ├── redis/                   # package redis
+        ├── bcrypt/                  # package bcryptadapter
+        └── kafka/                   # package kafka
+```
+
+| Вещь | Пакет | Имя типов | Сюда не класть |
+|---|---|---|---|
+| Сущность, VO, доменная ошибка | `domain` | `User`, `ErrNotFound` | proto, `sql.Null*`, pgx |
+| Интерфейс use case | `port` | `Auth`, `Profile` | реализации |
+| Интерфейс хранилища/клиента | `port` | `UserRepo`, `TokenStore`, `Hasher` | pgx, SMTP |
+| Сценарий Login/Register | `service` | `Auth` struct | `*grpc.Server`, `pgx.Pool` |
+| gRPC handler | `adapter/grpc` | `AuthServer` | бизнес-правила |
+| SQL | `adapter/postgres` | `UserRepo` | use case |
+
+Файлы в `port/` можно группировать как угодно — это **один** пакет `port`. Inbound и outbound отличаются именем: `Auth` vs `UserRepo`, а не пакетом.
+
+```go
+// internal/port/auth.go
+package port
+
+type Auth interface {
+    Login(ctx context.Context, cmd Login) (Tokens, error)
+    Register(ctx context.Context, cmd Register) (Tokens, error)
+}
+
+type Login struct {
+    Email, Password, DeviceInfo string
+}
+
+// internal/port/user_repo.go
+package port
+
+type UserRepo interface {
+    Save(ctx context.Context, u domain.User) error
+    FindByEmail(ctx context.Context, email string) (domain.User, error)
+}
+```
+
+```go
+// internal/service/auth.go
+package service
+
+type Auth struct {
+    users  port.UserRepo
+    hasher port.Hasher
+    tokens port.TokenStore
+}
+
+func NewAuth(users port.UserRepo, hasher port.Hasher, tokens port.TokenStore) *Auth {
+    return &Auth{users: users, hasher: hasher, tokens: tokens}
+}
+
+func (a *Auth) Login(ctx context.Context, cmd port.Login) (port.Tokens, error) { /* ... */ }
+```
+
+gRPC-адаптер зовёт `port.Auth` (или сразу `*service.Auth`, если вход один). Пакет **не** называть `grpc`:
+
+```go
+// internal/adapter/grpc/auth.go
+package grpcadapter
+
+type AuthServer struct {
+    authpb.UnimplementedAuthServiceServer
+    auth port.Auth
+}
+
+func (s *AuthServer) Login(ctx context.Context, req *authpb.LoginRequest) (*authpb.LoginResponse, error) {
+    tokens, err := s.auth.Login(ctx, port.Login{Email: req.Email, Password: req.Password})
+    // domain/port error → codes.NotFound / Unauthenticated
+    return &authpb.LoginResponse{AccessToken: tokens.Access}, err
+}
+```
+
+Postgres-адаптер — это и есть «репозиторий»:
+
+```go
+// internal/adapter/postgres/user_repo.go
+package postgres
+
+type UserRepo struct{ db *pgxpool.Pool }
+
+func (r *UserRepo) FindByEmail(ctx context.Context, email string) (domain.User, error) { /* scan → domain.User */ }
+
+var _ port.UserRepo = (*UserRepo)(nil)
+```
+
+Wiring только в `cmd/main.go`:
+
+```go
+pool := postgres.NewPool(cfg.DSN)
+users := postgres.NewUserRepo(pool)
+hasher := bcryptadapter.New()
+tokens := redis.NewTokenStore(rdb)
+auth := service.NewAuth(users, hasher, tokens)
+srv := grpcadapter.NewAuthServer(auth)
+```
+
+**Inbound-порт** (`port.Auth`) нужен, когда входов несколько: gRPC и Kafka consumer зовут один use case (notification). Если вход один — gRPC может зависеть от `*service.Auth` напрямую, интерфейс не обязателен.
+
+**Outbound-порт** нужен почти всегда: иначе `service` тащит `pgx`, юнит-тесты без Docker невозможны.
+
+Имена адаптеров — по технологии (`postgres`, `redis`, `smtp`), не `outbound`. Inbound-адаптеры: `grpc`, `kafka` (consumer), `cron`.
+
+**Чего не делать:**
+- пакет `repository/` рядом с `service/` — это трёхслойка, не гексагон
+- пакеты `inbound` / `outbound` — шум, роль видна из имени типа
+- `package grpc` — конфликт с `google.golang.org/grpc`
+- один `Repository` на все таблицы сервиса
+- proto-структуры в `domain` / `service`
+- `pgx.Pool` в `service`
+- интерфейс «на будущее, вдруг Mongo»
+- гексагон в API Gateway
+
+**Тесты:** `service` + фейки на `port.UserRepo` в памяти; `adapter/postgres` — Testcontainers.
+
 ## 3. Детальное описание сервисов
 
 ### 3.1. API Gateway Service
 
 **Порт:** 443 (HTTPS), 80 (HTTP redirect), 8080 в dev
 
-**Технологии:** Go, Echo или Chi, gRPC-Gateway, Redis (rate limiting)
+**Технологии:** Go, Echo или Chi, gRPC-клиенты из `pkg/api`, Redis (rate limiting)
+
+Gateway — BFF, не гексагон: HTTP-handler зовёт gRPC-клиент. Своего домена почти нет.
 
 **Структура:**
 ```
@@ -96,9 +427,13 @@ api-gateway/
 │   │   ├── ratelimit.go
 │   │   ├── circuitbreaker.go
 │   │   └── cors.go
+│   ├── handler/           # REST → вызов gRPC-клиента
+│   │   ├── auth.go
+│   │   ├── user.go
+│   │   └── task.go
+│   ├── client/            # коннекты к сервисам
+│   │   └── grpc.go
 │   ├── proxy/
-│   │   ├── http_proxy.go
-│   │   ├── grpc_proxy.go
 │   │   └── websocket.go
 │   ├── discovery/
 │   │   └── consul.go
@@ -152,40 +487,22 @@ api-gateway/
 
 Один сервис владеет аккаунтом целиком: креды, сессии, профиль, настройки.
 
-**Структура:**
+**Структура** (гексагон, см. 2.3):
 ```
-user-service/
-├── api/
-│   └── proto/
-│       ├── auth.proto
-│       ├── user.proto
-│       └── health.proto
+auth-service/
 ├── cmd/
 │   └── main.go
 ├── internal/
-│   ├── config/
-│   ├── model/
-│   │   ├── user.go
-│   │   ├── token.go
-│   │   ├── session.go
-│   │   ├── profile.go
-│   │   └── settings.go
-│   ├── repository/
-│   │   ├── user_repo.go
-│   │   ├── token_repo.go
-│   │   ├── profile_repo.go
-│   │   └── settings_repo.go
+│   ├── domain/
+│   ├── port/                        # Auth, UserRepo, TokenStore, Hasher, Events
 │   ├── service/
-│   │   ├── auth_service.go
-│   │   ├── token_service.go
-│   │   ├── oauth_service.go
-│   │   ├── profile_service.go
-│   │   └── settings_service.go
-│   ├── security/
-│   │   ├── password_hasher.go
-│   │   └── jwt_manager.go
-│   └── storage/
-│       └── minio_client.go
+│   └── adapter/
+│       ├── grpc/                    # package grpcadapter
+│       ├── postgres/
+│       ├── redis/
+│       ├── minio/
+│       ├── bcrypt/
+│       └── kafka/
 ├── migrations/
 │   ├── 000001_create_users.up.sql
 │   └── 000002_create_profiles.up.sql
@@ -197,7 +514,9 @@ user-service/
 ```protobuf
 syntax = "proto3";
 
-package user.v1;
+package auth;
+
+option go_package = "github.com/Iposhka54/task-tracker/pkg/api/auth;authpb";
 
 service AuthService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
@@ -325,34 +644,20 @@ CREATE TABLE user_settings (
 
 Задачи и категории в одном сервисе: `category_id` — обычный FK, без сетевого hop на каждую задачу.
 
-**Структура:**
+**Структура** (гексагон, см. 2.3):
 ```
 task-service/
-├── api/
-│   └── proto/
-│       ├── task.proto
-│       └── category.proto
 ├── cmd/
 │   └── main.go
 ├── internal/
-│   ├── config/
-│   ├── model/
-│   │   ├── task.go
-│   │   ├── category.go
-│   │   ├── comment.go
-│   │   └── attachment.go
-│   ├── repository/
-│   │   ├── task_repo.go
-│   │   ├── category_repo.go
-│   │   ├── comment_repo.go
-│   │   └── attachment_repo.go
+│   ├── domain/
+│   ├── port/                        # Task, Category, TaskRepo, Cache, Events
 │   ├── service/
-│   │   ├── task_service.go
-│   │   ├── category_service.go
-│   │   ├── comment_service.go
-│   │   └── attachment_service.go
-│   └── cache/
-│       └── redis_cache.go
+│   └── adapter/
+│       ├── grpc/
+│       ├── postgres/
+│       ├── redis/
+│       └── kafka/
 ├── migrations/
 │   ├── 000001_create_categories.up.sql
 │   ├── 000002_create_tasks.up.sql
@@ -366,7 +671,9 @@ task-service/
 ```protobuf
 syntax = "proto3";
 
-package task.v1;
+package task;
+
+option go_package = "github.com/Iposhka54/task-tracker/pkg/api/task;taskpb";
 
 service TaskService {
   rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
@@ -507,29 +814,21 @@ CREATE INDEX idx_categories_user ON categories(user_id, position);
 
 Один сервис доставки: in-app, realtime по WebSocket и email. Канал выбирается по настройкам пользователя и типу события.
 
-**Структура:**
+**Структура** (гексагон, см. 2.3):
 ```
 notification-service/
-├── api/
-│   └── proto/
-│       └── notification.proto
 ├── cmd/
 │   └── main.go
 ├── internal/
-│   ├── config/
-│   ├── model/
-│   ├── consumer/
-│   │   └── kafka_consumer.go
-│   ├── delivery/
-│   │   ├── websocket.go
-│   │   ├── inapp.go
-│   │   └── email.go
-│   ├── template/
-│   │   ├── welcome.go
-│   │   ├── reminder.go
-│   │   └── report.go
-│   ├── repository/
-│   └── service/
+│   ├── domain/
+│   ├── port/                        # Notify, InboxRepo, MailSender, Realtime
+│   ├── service/
+│   └── adapter/
+│       ├── grpc/
+│       ├── kafka/                   # consumer → port.Notify
+│       ├── postgres/
+│       ├── smtp/
+│       └── redis/
 ├── templates/
 │   ├── welcome.html
 │   ├── daily_report.html
@@ -539,11 +838,15 @@ notification-service/
 └── go.mod
 ```
 
+Канал доставки — outbound-адаптер. Use case «уведомить о дедлайне» не знает, SMTP это или WebSocket: он зовёт `MailSender` / `RealtimePublisher` по настройкам пользователя.
+
 **Protobuf контракт:**
 ```protobuf
 syntax = "proto3";
 
-package notification.v1;
+package notification;
+
+option go_package = "github.com/Iposhka54/task-tracker/pkg/api/notification;notificationpb";
 
 service NotificationService {
   rpc Subscribe(SubscribeRequest) returns (SubscribeResponse);
@@ -582,10 +885,14 @@ service NotificationService {
 
 Не ходит в чужие БД. Ставит джобы и публикует события в Kafka: «пора напомнить / пора отчёт». Notification и Task сами решают, что с этим делать.
 
+Inbound-адаптеры: gRPC (управление джобами) и cron-ticker (срабатывание). Outbound: `JobStore`, `EventPublisher`. Тикер не содержит бизнес-логики — только зовёт inbound-порт `RunDueJobs`.
+
 ```protobuf
 syntax = "proto3";
 
-package scheduler.v1;
+package scheduler;
+
+option go_package = "github.com/Iposhka54/task-tracker/pkg/api/scheduler;schedulerpb";
 
 service SchedulerService {
   rpc ScheduleJob(ScheduleJobRequest) returns (ScheduleJobResponse);
@@ -1038,10 +1345,11 @@ CMD ["./service"]
 - [ ] Каркас CI (lint + unit tests)
 
 ### Фаза 2: User Service (3-5 дней)
+- [ ] Каркас гексагона: domain / port / service / adapter, composition root
 - [ ] Регистрация, логин, JWT, refresh tokens
 - [ ] Профиль, настройки, аватар (MinIO)
 - [ ] OAuth Google/GitHub
-- [ ] Юнит и интеграционные тесты
+- [ ] Юнит-тесты service на фейковых outbound-портах; интеграция postgres-адаптера
 
 ### Фаза 3: Task Service (4-6 дней)
 - [ ] CRUD задач, статусы, приоритеты, теги
@@ -1068,17 +1376,18 @@ CMD ["./service"]
 
 ## 10. Тестирование
 
-1. **Юнит тесты:** моки зависимостей, покрытие > 80%
-2. **Интеграционные:** Testcontainers для Postgres/Redis, Kafka harness, gRPC
-3. **E2E:** API-сценарии (Newman/k6), UI — если появится SPA
-4. **Нагрузка:** k6 на gateway + task-service
+1. **Юнит тесты ядра:** `internal/service` + фейки на `port.UserRepo` в памяти, без Docker. Покрытие use case'ов > 80%.
+2. **Адаптеры:** Testcontainers для Postgres/Redis/Kafka; отдельно маппинг gRPC (proto ↔ domain, коды ошибок).
+3. **E2E:** API-сценарии через gateway (Newman/k6), UI — если появится SPA.
+4. **Нагрузка:** k6 на gateway + task-service.
 
 ## Заключение
 
 Прагматичная схема без дробления домена на сервисы ради сервисов:
 
 - **5 процессов:** API Gateway, User, Task, Notification, Scheduler
-- **gRPC** внутри, **REST** снаружи
+- **Гексагон внутри сервиса:** domain → ports → adapters (gRPC, Postgres, Kafka, SMTP)
+- **gRPC** внутри, **REST** снаружи, контракты в общем `pkg/api`
 - **Kafka** только там, где нужен async (уведомления, джобы)
 - **Consul**, Redis, MinIO, полный observability-стек
 - Без отдельного audit/email/category/auth-сервиса и без ClickHouse
