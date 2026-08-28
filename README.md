@@ -536,7 +536,7 @@ service UserService {
 }
 
 message User {
-  uint64 id = 1;
+  string id = 1; // UUID
   string email = 2;
   string username = 3;
   bool is_active = 4;
@@ -546,7 +546,7 @@ message User {
 }
 
 message Profile {
-  uint64 user_id = 1;
+  string user_id = 1; // UUID
   string username = 2;
   string full_name = 3;
   string bio = 4;
@@ -582,7 +582,7 @@ message Profile {
 6. **Схема БД:**
 ```sql
 CREATE TABLE users (
-    id BIGSERIAL PRIMARY KEY,
+    id UUID PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash VARCHAR(255),
@@ -594,8 +594,8 @@ CREATE TABLE users (
 );
 
 CREATE TABLE oauth_accounts (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     provider VARCHAR(50) NOT NULL,
     provider_user_id VARCHAR(255) NOT NULL,
     access_token TEXT,
@@ -605,15 +605,15 @@ CREATE TABLE oauth_accounts (
 );
 
 CREATE TABLE login_attempts (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT REFERENCES users(id),
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES users(id),
     ip_address INET,
     success BOOLEAN,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE profiles (
-    user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     full_name VARCHAR(255),
     bio TEXT,
     avatar_url VARCHAR(500),
@@ -697,9 +697,9 @@ service CategoryService {
 }
 
 message Task {
-  uint64 id = 1;
-  uint64 user_id = 2;
-  uint64 category_id = 3;
+  string id = 1;
+  string user_id = 2;
+  string category_id = 3;
   string title = 4;
   string description = 5;
   TaskStatus status = 6;
@@ -712,8 +712,8 @@ message Task {
 }
 
 message Category {
-  uint64 id = 1;
-  uint64 user_id = 2;
+  string id = 1;
+  string user_id = 2;
   string name = 3;
   string color = 4;
   string icon = 5;
@@ -750,8 +750,8 @@ enum TaskPriority {
 **Схема БД:**
 ```sql
 CREATE TABLE categories (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL,
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
     name VARCHAR(100) NOT NULL,
     color VARCHAR(7) DEFAULT '#808080',
     icon VARCHAR(50),
@@ -762,9 +762,9 @@ CREATE TABLE categories (
 );
 
 CREATE TABLE tasks (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT NOT NULL,
-    category_id BIGINT REFERENCES categories(id) ON DELETE SET NULL,
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    category_id UUID REFERENCES categories(id) ON DELETE SET NULL,
     title VARCHAR(255) NOT NULL,
     description TEXT,
     status VARCHAR(20) NOT NULL DEFAULT 'todo',
@@ -776,27 +776,28 @@ CREATE TABLE tasks (
 );
 
 CREATE TABLE task_tags (
-    task_id BIGINT REFERENCES tasks(id) ON DELETE CASCADE,
+    task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
     tag VARCHAR(50),
     PRIMARY KEY (task_id, tag)
 );
 
 CREATE TABLE comments (
-    id BIGSERIAL PRIMARY KEY,
-    task_id BIGINT REFERENCES tasks(id) ON DELETE CASCADE,
-    user_id BIGINT NOT NULL,
+    id UUID PRIMARY KEY,
+    task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE attachments (
-    id BIGSERIAL PRIMARY KEY,
-    task_id BIGINT REFERENCES tasks(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY,
+    task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
     file_name VARCHAR(255) NOT NULL,
     file_url VARCHAR(500) NOT NULL,
     file_size BIGINT,
     mime_type VARCHAR(100),
+    uploaded_by UUID NOT NULL,
     uploaded_by BIGINT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT now()
 );

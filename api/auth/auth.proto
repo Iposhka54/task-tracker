@@ -61,7 +61,7 @@ message ValidateTokenResponse {
 }
 
 message User {
-  uint64 id = 1;
+  string id = 1;
   string email = 2;
   string username = 3;
   bool is_active = 4;
