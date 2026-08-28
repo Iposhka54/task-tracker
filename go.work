@@ -1,3 +1,7 @@
 go 1.25.5
 
-use ./services/auth-service
+use (
+	./pkg/api
+	./pkg/postgres
+	./services/auth-service
+)
