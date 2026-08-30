@@ -40,16 +40,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	shutdown, err := telemetry.InitTracer(ctx, cfg.Telemetry, "auth-service")
+	shutdown, err := telemetry.Init(ctx, cfg.Telemetry, "auth-service")
 	if err != nil {
-		log.Error("init tracer", "error", err)
+		log.Error("init telemetry", "error", err)
 		os.Exit(1)
 	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err = shutdown(shutdownCtx); err != nil {
-			log.Error("tracer shutdown", "error", err)
+			log.Error("telemetry shutdown", "error", err)
 		}
 	}()
 
@@ -86,6 +86,7 @@ func main() {
 	srv := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler(
 			otelgrpc.WithTracerProvider(otel.GetTracerProvider()),
+			otelgrpc.WithMeterProvider(otel.GetMeterProvider()),
 			otelgrpc.WithPropagators(otel.GetTextMapPropagator()),
 		)),
 		grpc.UnaryInterceptor(grpcadapter.UnaryLogger(log)),
