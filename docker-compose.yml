@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: auth
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d auth"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    volumes:
+      - ./services/auth-service/migrations:/migrations:ro
+    command:
+      - -path=/migrations
+      - -database
+      - postgres://postgres:postgres@postgres:5432/auth?sslmode=disable
+      - up
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.68.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-otlp-receiver
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    env_file:
+      - ./services/auth-service/.env
+    environment:
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+      TRACE_ENDPOINT: jaeger:4317
+      METRICS_ENDPOINT: prometheus:9090
+    ports:
+      - "9001:9001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      jaeger:
+        condition: service_started
+      prometheus:
+        condition: service_started
+
+volumes:
+  postgres_data:
