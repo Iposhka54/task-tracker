@@ -8,7 +8,7 @@ import (
 )
 
 type TokenIssuer interface {
-	IssueAccess(userID uuid.UUID) (string, error)
+	IssueAccess(ctx context.Context, userID uuid.UUID) (string, error)
 }
 
 type RefreshRepo interface {
