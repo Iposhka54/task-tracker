@@ -70,7 +70,7 @@ func (fakeHasher) Compare(hash, password string) error {
 
 type fakeIssuer struct{}
 
-func (fakeIssuer) IssueAccess(userID uuid.UUID) (string, error) {
+func (fakeIssuer) IssueAccess(_ context.Context, userID uuid.UUID) (string, error) {
 	return "access:" + userID.String(), nil
 }
 

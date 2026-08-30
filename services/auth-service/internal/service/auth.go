@@ -194,7 +194,7 @@ func (a *Auth) RefreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (
 }
 
 func (a *Auth) issueSession(ctx context.Context, user domain.User) (port.Session, error) {
-	accessToken, err := a.tokens.IssueAccess(user.ID)
+	accessToken, err := a.tokens.IssueAccess(ctx, user.ID)
 	if err != nil {
 		a.log.ErrorContext(ctx, "issue access token", "user_id", user.ID.String(), "error", err)
 		return port.Session{}, err
