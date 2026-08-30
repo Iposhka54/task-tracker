@@ -20,11 +20,14 @@ import (
 	pgadapter "github.com/Iposhka54/task-tracker/services/auth-service/internal/adapter/postgres"
 	redisadapter "github.com/Iposhka54/task-tracker/services/auth-service/internal/adapter/redis"
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/config"
+	authmetrics "github.com/Iposhka54/task-tracker/services/auth-service/internal/metrics"
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/service"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 )
+
+const serviceName = "auth-service"
 
 func main() {
 	cfg, err := config.New()
@@ -40,7 +43,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt)
 	defer stop()
 
-	shutdown, err := telemetry.Init(ctx, cfg.Telemetry, "auth-service")
+	shutdown, err := telemetry.Init(ctx, cfg.Telemetry, serviceName)
 	if err != nil {
 		log.Error("init telemetry", "error", err)
 		os.Exit(1)
@@ -67,6 +70,12 @@ func main() {
 	}
 	defer rdb.Close()
 
+	authMetrics, err := authmetrics.New(otel.Meter(serviceName))
+	if err != nil {
+		log.Error("init auth metrics", "error", err)
+		os.Exit(1)
+	}
+
 	auth := service.NewAuth(
 		pgadapter.NewUserRepo(dbPool),
 		bcryptadapter.New(12),
@@ -75,6 +84,7 @@ func main() {
 		redisadapter.NewCache(rdb),
 		cfg.JWT.RefreshTTL,
 		log,
+		authMetrics,
 	)
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", cfg.GRPCPort))
