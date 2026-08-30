@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/domain"
+	"github.com/Iposhka54/task-tracker/services/auth-service/internal/metrics"
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/port"
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/validate"
 	"github.com/google/uuid"
@@ -22,6 +23,7 @@ type Auth struct {
 	cache       port.Cache
 	refreshTTL  time.Duration
 	log         *slog.Logger
+	metrics     *metrics.AuthMetrics
 }
 
 func NewAuth(
@@ -32,6 +34,7 @@ func NewAuth(
 	cache port.Cache,
 	refreshTTL time.Duration,
 	log *slog.Logger,
+	metrics *metrics.AuthMetrics,
 ) *Auth {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
@@ -44,12 +47,19 @@ func NewAuth(
 		cache:       cache,
 		refreshTTL:  refreshTTL,
 		log:         log,
+		metrics:     metrics,
 	}
 }
 
 var _ port.Auth = (*Auth)(nil)
 
 func (a *Auth) Register(ctx context.Context, cmd port.RegisterRequest) (port.Session, error) {
+	sess, err := a.register(ctx, cmd)
+	a.metrics.RegisterAttempt(ctx, err)
+	return sess, err
+}
+
+func (a *Auth) register(ctx context.Context, cmd port.RegisterRequest) (port.Session, error) {
 	email, err := validate.Email(cmd.Email)
 	if err != nil {
 		return port.Session{}, err
@@ -90,11 +100,19 @@ func (a *Auth) Register(ctx context.Context, cmd port.RegisterRequest) (port.Ses
 	if err != nil {
 		return port.Session{}, err
 	}
+	a.metrics.UserRegistered(ctx)
+	a.metrics.SessionOpened(ctx)
 	a.log.InfoContext(ctx, "user registered", "user_id", user.ID.String())
 	return sess, nil
 }
 
 func (a *Auth) Login(ctx context.Context, cmd port.LoginRequest) (port.Session, error) {
+	sess, err := a.login(ctx, cmd)
+	a.metrics.LoginAttempt(ctx, err)
+	return sess, err
+}
+
+func (a *Auth) login(ctx context.Context, cmd port.LoginRequest) (port.Session, error) {
 	email, err := validate.Email(cmd.Email)
 	if err != nil {
 		return port.Session{}, err
@@ -125,11 +143,18 @@ func (a *Auth) Login(ctx context.Context, cmd port.LoginRequest) (port.Session, 
 	if err != nil {
 		return port.Session{}, err
 	}
+	a.metrics.SessionOpened(ctx)
 	a.log.InfoContext(ctx, "user logged in", "user_id", user.ID.String())
 	return sess, nil
 }
 
 func (a *Auth) Logout(ctx context.Context, cmd port.LogoutRequest) error {
+	err := a.logout(ctx, cmd)
+	a.metrics.LogoutAttempt(ctx, err)
+	return err
+}
+
+func (a *Auth) logout(ctx context.Context, cmd port.LogoutRequest) error {
 	if cmd.RefreshToken == "" {
 		return domain.ErrInvalidInput
 	}
@@ -139,6 +164,7 @@ func (a *Auth) Logout(ctx context.Context, cmd port.LogoutRequest) error {
 		a.log.ErrorContext(ctx, "delete refresh token", "error", err)
 		return err
 	}
+	a.metrics.SessionClosed(ctx)
 
 	if err = a.cache.Del(ctx, refreshKey(cmd.RefreshToken)); err != nil {
 		if errors.Is(err, port.ErrCacheMiss) {
@@ -154,6 +180,12 @@ func (a *Auth) Logout(ctx context.Context, cmd port.LogoutRequest) error {
 }
 
 func (a *Auth) RefreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (port.Session, error) {
+	sess, err := a.refreshToken(ctx, cmd)
+	a.metrics.RefreshAttempt(ctx, err)
+	return sess, err
+}
+
+func (a *Auth) refreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (port.Session, error) {
 	if cmd.RefreshToken == "" {
 		return port.Session{}, domain.ErrInvalidInput
 	}
@@ -173,6 +205,7 @@ func (a *Auth) RefreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (
 
 	user, err := a.users.FindByID(ctx, userID)
 	if err != nil {
+		a.metrics.SessionClosed(ctx)
 		if errors.Is(err, domain.ErrNotFound) {
 			a.log.WarnContext(ctx, "refresh rejected: user missing", "user_id", userID.String())
 			return port.Session{}, domain.ErrInvalidCredentials
@@ -181,12 +214,14 @@ func (a *Auth) RefreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (
 		return port.Session{}, err
 	}
 	if !user.IsActive {
+		a.metrics.SessionClosed(ctx)
 		a.log.WarnContext(ctx, "refresh rejected: inactive user", "user_id", user.ID.String())
 		return port.Session{}, domain.ErrInactive
 	}
 
 	sess, err := a.issueSession(ctx, user)
 	if err != nil {
+		a.metrics.SessionClosed(ctx)
 		return port.Session{}, err
 	}
 	a.log.InfoContext(ctx, "tokens rotated", "user_id", user.ID.String())

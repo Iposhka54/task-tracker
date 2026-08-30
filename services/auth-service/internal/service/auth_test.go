@@ -135,7 +135,7 @@ func TestAuth_Register_ReturnsTokens(t *testing.T) {
 
 	db := newFakeRefreshRepo()
 	cache := newFakeCache()
-	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil)
+	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil, nil)
 
 	got, err := auth.Register(context.Background(), port.RegisterRequest{
 		Email:    "ada@example.com",
@@ -165,7 +165,7 @@ func TestAuth_Login(t *testing.T) {
 	users := newFakeRepo()
 	db := newFakeRefreshRepo()
 	cache := newFakeCache()
-	auth := NewAuth(users, fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil)
+	auth := NewAuth(users, fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil, nil)
 	ctx := context.Background()
 
 	reg, err := auth.Register(ctx, port.RegisterRequest{
@@ -197,7 +197,7 @@ func TestAuth_Logout(t *testing.T) {
 
 	db := newFakeRefreshRepo()
 	cache := newFakeCache()
-	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil)
+	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil, nil)
 	ctx := context.Background()
 
 	got, err := auth.Register(ctx, port.RegisterRequest{
@@ -221,7 +221,7 @@ func TestAuth_Logout(t *testing.T) {
 		t.Fatal("refresh still in cache")
 	}
 
-	if err = auth.Logout(ctx, port.LogoutRequest{RefreshToken: got.RefreshToken}); err != nil {
+	if err = auth.Logout(ctx, port.LogoutRequest{RefreshToken: got.RefreshToken}); err != domain.ErrNotFound {
 		t.Fatalf("second Logout: %v", err)
 	}
 }
@@ -231,7 +231,7 @@ func TestAuth_RefreshToken(t *testing.T) {
 
 	db := newFakeRefreshRepo()
 	cache := newFakeCache()
-	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil)
+	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil, nil)
 	ctx := context.Background()
 
 	reg, err := auth.Register(ctx, port.RegisterRequest{
