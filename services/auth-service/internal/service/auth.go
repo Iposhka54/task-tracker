@@ -105,23 +105,23 @@ func (a *Auth) Login(ctx context.Context, cmd port.LoginRequest) (port.Session, 
 }
 
 func (a *Auth) issueSession(ctx context.Context, user domain.User) (port.Session, error) {
-	access, err := a.tokens.IssueAccess(user.ID)
+	accessToken, err := a.tokens.IssueAccess(user.ID)
 	if err != nil {
 		return port.Session{}, err
 	}
 
-	refresh := uuid.NewString()
-	if err = a.refreshRepo.Save(ctx, user.ID, refresh, a.refreshTTL); err != nil {
+	refreshToken := uuid.NewString()
+	if err = a.refreshRepo.Save(ctx, user.ID, refreshToken, a.refreshTTL); err != nil {
 		return port.Session{}, err
 	}
-	if err = a.cache.Set(ctx, refreshKey(refresh), user.ID.String(), a.refreshTTL); err != nil {
+	if err = a.cache.Set(ctx, refreshKey(refreshToken), user.ID.String(), a.refreshTTL); err != nil {
 		return port.Session{}, err
 	}
 
 	return port.Session{
 		User:         user,
-		AccessToken:  access,
-		RefreshToken: refresh,
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
 	}, nil
 }
 
