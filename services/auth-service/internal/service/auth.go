@@ -104,6 +104,25 @@ func (a *Auth) Login(ctx context.Context, cmd port.LoginRequest) (port.Session, 
 	return a.issueSession(ctx, user)
 }
 
+func (a *Auth) Logout(ctx context.Context, cmd port.LogoutRequest) error {
+	if cmd.RefreshToken == "" {
+		return domain.ErrInvalidInput
+	}
+
+	if err := a.refreshRepo.Delete(ctx, cmd.RefreshToken); err != nil {
+		return err
+	}
+
+	if err := a.cache.Del(ctx, refreshKey(cmd.RefreshToken)); err != nil {
+		if errors.Is(err, port.ErrCacheMiss) {
+			return nil
+		}
+		return err
+	}
+
+	return nil
+}
+
 func (a *Auth) issueSession(ctx context.Context, user domain.User) (port.Session, error) {
 	accessToken, err := a.tokens.IssueAccess(user.ID)
 	if err != nil {

@@ -33,3 +33,15 @@ func (r *RefreshRepo) Save(ctx context.Context, userID uuid.UUID, token string, 
 	}
 	return nil
 }
+
+func (r *RefreshRepo) Delete(ctx context.Context, token string) error {
+	sum := sha256.Sum256([]byte(token))
+	_, err := r.pool.Exec(ctx, `
+		DELETE FROM refresh_tokens
+		WHERE token_hash = $1
+	`, hex.EncodeToString(sum[:]))
+	if err != nil {
+		return fmt.Errorf("delete refresh token: %w", err)
+	}
+	return nil
+}

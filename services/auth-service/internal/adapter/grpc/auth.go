@@ -48,3 +48,13 @@ func (s *AuthServer) Login(ctx context.Context, req *authpb.LoginRequest) (*auth
 		User:         userToProto(result.User),
 	}, nil
 }
+
+func (s *AuthServer) Logout(ctx context.Context, req *authpb.LogoutRequest) (*authpb.LogoutResponse, error) {
+	if err := s.auth.Logout(ctx, port.LogoutRequest{
+		RefreshToken: req.GetRefreshToken(),
+	}); err != nil {
+		return nil, toStatus(err)
+	}
+
+	return &authpb.LogoutResponse{}, nil
+}
