@@ -10,6 +10,7 @@ type Auth interface {
 	Register(ctx context.Context, cmd RegisterRequest) (Session, error)
 	Login(ctx context.Context, cmd LoginRequest) (Session, error)
 	Logout(ctx context.Context, cmd LogoutRequest) error
+	RefreshToken(ctx context.Context, cmd RefreshTokenRequest) (Session, error)
 }
 
 type RegisterRequest struct {
@@ -24,6 +25,10 @@ type LoginRequest struct {
 }
 
 type LogoutRequest struct {
+	RefreshToken string
+}
+
+type RefreshTokenRequest struct {
 	RefreshToken string
 }
 

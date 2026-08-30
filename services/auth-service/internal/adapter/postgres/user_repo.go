@@ -7,6 +7,7 @@ import (
 
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/domain"
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/port"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -38,6 +39,22 @@ func (r *UserRepo) Save(ctx context.Context, u domain.User) error {
 		return fmt.Errorf("insert user: %w", err)
 	}
 	return nil
+}
+
+func (r *UserRepo) FindByID(ctx context.Context, id uuid.UUID) (domain.User, error) {
+	var u domain.User
+	err := r.pool.QueryRow(ctx, `
+		SELECT id, email, username, password_hash, is_active, created_at, updated_at
+		FROM users
+		WHERE id = $1
+	`, id).Scan(&u.ID, &u.Email, &u.Username, &u.PasswordHash, &u.IsActive, &u.CreatedAt, &u.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.User{}, fmt.Errorf("find user by id: %w", err)
+	}
+	return u, nil
 }
 
 func (r *UserRepo) FindByEmail(ctx context.Context, email string) (domain.User, error) {

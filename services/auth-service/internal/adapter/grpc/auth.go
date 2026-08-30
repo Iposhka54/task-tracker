@@ -8,7 +8,7 @@ import (
 )
 
 type AuthServer struct {
-	authpb.UnimplementedAuthServiceServer
+	authpb.AuthServiceServer
 	auth port.Auth
 }
 
@@ -57,4 +57,18 @@ func (s *AuthServer) Logout(ctx context.Context, req *authpb.LogoutRequest) (*au
 	}
 
 	return &authpb.LogoutResponse{}, nil
+}
+
+func (s *AuthServer) RefreshToken(ctx context.Context, req *authpb.RefreshTokenRequest) (*authpb.RefreshTokenResponse, error) {
+	result, err := s.auth.RefreshToken(ctx, port.RefreshTokenRequest{
+		RefreshToken: req.GetRefreshToken(),
+	})
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	return &authpb.RefreshTokenResponse{
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+	}, nil
 }
