@@ -123,6 +123,32 @@ func (a *Auth) Logout(ctx context.Context, cmd port.LogoutRequest) error {
 	return nil
 }
 
+func (a *Auth) RefreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (port.Session, error) {
+	userID, err := a.refreshRepo.Consume(ctx, cmd.RefreshToken)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			_ = a.cache.Del(ctx, refreshKey(cmd.RefreshToken))
+			return port.Session{}, domain.ErrInvalidCredentials
+		}
+		return port.Session{}, err
+	}
+
+	_ = a.cache.Del(ctx, refreshKey(cmd.RefreshToken))
+
+	user, err := a.users.FindByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return port.Session{}, domain.ErrInvalidCredentials
+		}
+		return port.Session{}, err
+	}
+	if !user.IsActive {
+		return port.Session{}, domain.ErrInactive
+	}
+
+	return a.issueSession(ctx, user)
+}
+
 func (a *Auth) issueSession(ctx context.Context, user domain.User) (port.Session, error) {
 	accessToken, err := a.tokens.IssueAccess(user.ID)
 	if err != nil {

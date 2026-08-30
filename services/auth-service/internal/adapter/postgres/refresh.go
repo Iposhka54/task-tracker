@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/Iposhka54/task-tracker/services/auth-service/internal/domain"
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/port"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -32,6 +35,23 @@ func (r *RefreshRepo) Save(ctx context.Context, userID uuid.UUID, token string, 
 		return fmt.Errorf("insert refresh token: %w", err)
 	}
 	return nil
+}
+
+func (r *RefreshRepo) Consume(ctx context.Context, token string) (uuid.UUID, error) {
+	sum := sha256.Sum256([]byte(token))
+	var userID uuid.UUID
+	err := r.pool.QueryRow(ctx, `
+		DELETE FROM refresh_tokens
+		WHERE token_hash = $1 AND expires_at > now()
+		RETURNING user_id
+	`, hex.EncodeToString(sum[:])).Scan(&userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("consume refresh token: %w", err)
+	}
+	return userID, nil
 }
 
 func (r *RefreshRepo) Delete(ctx context.Context, token string) error {
