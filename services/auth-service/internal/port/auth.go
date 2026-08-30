@@ -9,6 +9,7 @@ import (
 type Auth interface {
 	Register(ctx context.Context, cmd RegisterRequest) (Session, error)
 	Login(ctx context.Context, cmd LoginRequest) (Session, error)
+	Logout(ctx context.Context, cmd LogoutRequest) error
 }
 
 type RegisterRequest struct {
@@ -20,6 +21,10 @@ type RegisterRequest struct {
 type LoginRequest struct {
 	Email    string
 	Password string
+}
+
+type LogoutRequest struct {
+	RefreshToken string
 }
 
 type Session struct {

@@ -39,8 +39,14 @@ func (c *Cache) Get(ctx context.Context, key string) (string, error) {
 }
 
 func (c *Cache) Del(ctx context.Context, key string) error {
-	if err := c.rdb.Del(ctx, key).Err(); err != nil {
+	deletedCount, err := c.rdb.Del(ctx, key).Result()
+	if err != nil {
 		return fmt.Errorf("cache del: %w", err)
 	}
+
+	if deletedCount == 0 {
+		return port.ErrCacheMiss
+	}
+
 	return nil
 }

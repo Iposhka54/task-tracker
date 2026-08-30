@@ -66,11 +66,20 @@ func (fakeIssuer) IssueAccess(userID uuid.UUID) (string, error) {
 }
 
 type fakeRefreshRepo struct {
-	last string
+	tokens map[string]uuid.UUID
 }
 
-func (s *fakeRefreshRepo) Save(_ context.Context, _ uuid.UUID, token string, _ time.Duration) error {
-	s.last = token
+func newFakeRefreshRepo() *fakeRefreshRepo {
+	return &fakeRefreshRepo{tokens: map[string]uuid.UUID{}}
+}
+
+func (s *fakeRefreshRepo) Save(_ context.Context, userID uuid.UUID, token string, _ time.Duration) error {
+	s.tokens[token] = userID
+	return nil
+}
+
+func (s *fakeRefreshRepo) Delete(_ context.Context, token string) error {
+	delete(s.tokens, token)
 	return nil
 }
 
@@ -96,6 +105,9 @@ func (c *fakeCache) Get(_ context.Context, key string) (string, error) {
 }
 
 func (c *fakeCache) Del(_ context.Context, key string) error {
+	if _, ok := c.data[key]; !ok {
+		return port.ErrCacheMiss
+	}
 	delete(c.data, key)
 	return nil
 }
@@ -103,7 +115,7 @@ func (c *fakeCache) Del(_ context.Context, key string) error {
 func TestAuth_Register_ReturnsTokens(t *testing.T) {
 	t.Parallel()
 
-	db := &fakeRefreshRepo{}
+	db := newFakeRefreshRepo()
 	cache := newFakeCache()
 	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour)
 
@@ -121,7 +133,7 @@ func TestAuth_Register_ReturnsTokens(t *testing.T) {
 	if got.AccessToken != "access:"+got.User.ID.String() {
 		t.Fatalf("access token: %s", got.AccessToken)
 	}
-	if got.RefreshToken != db.last {
+	if _, ok := db.tokens[got.RefreshToken]; !ok {
 		t.Fatalf("refresh not stored in db")
 	}
 	if cache.data[refreshKey(got.RefreshToken)] != got.User.ID.String() {
@@ -133,7 +145,7 @@ func TestAuth_Login(t *testing.T) {
 	t.Parallel()
 
 	users := newFakeRepo()
-	db := &fakeRefreshRepo{}
+	db := newFakeRefreshRepo()
 	cache := newFakeCache()
 	auth := NewAuth(users, fakeHasher{}, fakeIssuer{}, db, cache, time.Hour)
 	ctx := context.Background()
@@ -159,5 +171,39 @@ func TestAuth_Login(t *testing.T) {
 	_, err = auth.Login(ctx, port.LoginRequest{Email: "ada@example.com", Password: "wrongpass"})
 	if err != domain.ErrInvalidCredentials {
 		t.Fatalf("want ErrInvalidCredentials, got %v", err)
+	}
+}
+
+func TestAuth_Logout(t *testing.T) {
+	t.Parallel()
+
+	db := newFakeRefreshRepo()
+	cache := newFakeCache()
+	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour)
+	ctx := context.Background()
+
+	got, err := auth.Register(ctx, port.RegisterRequest{
+		Email: "ada@example.com", Password: "secret123", Username: "ada",
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	if err = auth.Logout(ctx, port.LogoutRequest{}); err != domain.ErrInvalidInput {
+		t.Fatalf("empty token: %v", err)
+	}
+
+	if err = auth.Logout(ctx, port.LogoutRequest{RefreshToken: got.RefreshToken}); err != nil {
+		t.Fatalf("Logout: %v", err)
+	}
+	if _, ok := db.tokens[got.RefreshToken]; ok {
+		t.Fatal("refresh still in db")
+	}
+	if _, ok := cache.data[refreshKey(got.RefreshToken)]; ok {
+		t.Fatal("refresh still in cache")
+	}
+
+	if err = auth.Logout(ctx, port.LogoutRequest{RefreshToken: got.RefreshToken}); err != nil {
+		t.Fatalf("second Logout: %v", err)
 	}
 }
