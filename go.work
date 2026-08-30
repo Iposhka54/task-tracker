@@ -3,5 +3,6 @@ go 1.25.5
 use (
 	./pkg/api
 	./pkg/postgres
+	./pkg/redis
 	./services/auth-service
 )
