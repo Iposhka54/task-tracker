@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
+	"github.com/Iposhka54/task-tracker/pkg/logger"
 	"github.com/Iposhka54/task-tracker/pkg/postgres"
 	pkgredis "github.com/Iposhka54/task-tracker/pkg/redis"
 	"github.com/Iposhka54/task-tracker/pkg/telemetry"
@@ -22,6 +24,7 @@ type Config struct {
 	Redis     pkgredis.Config `env:"REDIS"`
 	JWT       JWTConfig
 	Telemetry telemetry.Config
+	Log       logger.Config
 }
 
 func New() (Config, error) {
@@ -61,6 +64,9 @@ func Default() Config {
 			SamplingRate: 1.0,
 			BatchTimeout: 5 * time.Second,
 			Insecure:     true,
+		},
+		Log: logger.Config{
+			Level: slog.LevelInfo,
 		},
 	}
 }
