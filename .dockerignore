@@ -1,0 +1,8 @@
+.git
+.idea
+.vscode
+**/.env
+**/*_test.go
+**/*.md
+**/bin
+**/*.exe
