@@ -4,5 +4,6 @@ use (
 	./pkg/api
 	./pkg/postgres
 	./pkg/redis
+	./pkg/telemetry
 	./services/auth-service
 )
