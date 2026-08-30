@@ -1,27 +1,89 @@
-name: TaskFlow CI/CD Pipeline
+name: CI
+
 on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.22'
+  GO_VERSION: "1.25"
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: taskflow
 
 jobs:
   test:
     name: Test
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            pkg/*/go.sum
+            services/*/go.sum
 
       - name: Test
         run: |
-          go test -v ./...
-          go test -race ./...
+          mapfile -t dirs < <(go work edit -json | jq -r '.Use[].DiskPath')
+          for dir in "${dirs[@]}"; do
+            go test "${dir}/..."
+          done
+
+      - name: Test race
+        run: |
+          mapfile -t dirs < <(go work edit -json | jq -r '.Use[].DiskPath')
+          for dir in "${dirs[@]}"; do
+            go test -race "${dir}/..."
+          done
+
+  image:
+    name: Image (${{ matrix.name }})
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: auth-service
+            dockerfile: services/auth-service/Dockerfile
+            context: .
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.name }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch
+            type=sha,prefix=sha-
+            type=semver,pattern={{version}}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
