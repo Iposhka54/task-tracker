@@ -437,102 +437,6 @@ func (x *RefreshTokenResponse) GetRefreshToken() string {
 	return ""
 }
 
-type ValidateTokenRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	AccessToken   string                 `protobuf:"bytes,1,opt,name=access_token,json=accessToken,proto3" json:"access_token,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ValidateTokenRequest) Reset() {
-	*x = ValidateTokenRequest{}
-	mi := &file_auth_auth_proto_msgTypes[8]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ValidateTokenRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ValidateTokenRequest) ProtoMessage() {}
-
-func (x *ValidateTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_auth_auth_proto_msgTypes[8]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ValidateTokenRequest.ProtoReflect.Descriptor instead.
-func (*ValidateTokenRequest) Descriptor() ([]byte, []int) {
-	return file_auth_auth_proto_rawDescGZIP(), []int{8}
-}
-
-func (x *ValidateTokenRequest) GetAccessToken() string {
-	if x != nil {
-		return x.AccessToken
-	}
-	return ""
-}
-
-type ValidateTokenResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Valid         bool                   `protobuf:"varint,1,opt,name=valid,proto3" json:"valid,omitempty"`
-	User          *User                  `protobuf:"bytes,2,opt,name=user,proto3" json:"user,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ValidateTokenResponse) Reset() {
-	*x = ValidateTokenResponse{}
-	mi := &file_auth_auth_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ValidateTokenResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ValidateTokenResponse) ProtoMessage() {}
-
-func (x *ValidateTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_auth_auth_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ValidateTokenResponse.ProtoReflect.Descriptor instead.
-func (*ValidateTokenResponse) Descriptor() ([]byte, []int) {
-	return file_auth_auth_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *ValidateTokenResponse) GetValid() bool {
-	if x != nil {
-		return x.Valid
-	}
-	return false
-}
-
-func (x *ValidateTokenResponse) GetUser() *User {
-	if x != nil {
-		return x.User
-	}
-	return nil
-}
-
 type User struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -548,7 +452,7 @@ type User struct {
 
 func (x *User) Reset() {
 	*x = User{}
-	mi := &file_auth_auth_proto_msgTypes[10]
+	mi := &file_auth_auth_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -560,7 +464,7 @@ func (x *User) String() string {
 func (*User) ProtoMessage() {}
 
 func (x *User) ProtoReflect() protoreflect.Message {
-	mi := &file_auth_auth_proto_msgTypes[10]
+	mi := &file_auth_auth_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -573,7 +477,7 @@ func (x *User) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use User.ProtoReflect.Descriptor instead.
 func (*User) Descriptor() ([]byte, []int) {
-	return file_auth_auth_proto_rawDescGZIP(), []int{10}
+	return file_auth_auth_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *User) GetId() string {
@@ -656,13 +560,7 @@ const file_auth_auth_proto_rawDesc = "" +
 	"\rrefresh_token\x18\x01 \x01(\tR\frefreshToken\"^\n" +
 	"\x14RefreshTokenResponse\x12!\n" +
 	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\x12#\n" +
-	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\"9\n" +
-	"\x14ValidateTokenRequest\x12!\n" +
-	"\faccess_token\x18\x01 \x01(\tR\vaccessToken\"M\n" +
-	"\x15ValidateTokenResponse\x12\x14\n" +
-	"\x05valid\x18\x01 \x01(\bR\x05valid\x12\x1e\n" +
-	"\x04user\x18\x02 \x01(\v2\n" +
-	".auth.UserR\x04user\"\xc2\x01\n" +
+	"\rrefresh_token\x18\x02 \x01(\tR\frefreshToken\"\xc2\x01\n" +
 	"\x04User\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05email\x18\x02 \x01(\tR\x05email\x12\x1a\n" +
@@ -673,13 +571,12 @@ const file_auth_auth_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\x06 \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\a \x01(\tR\tupdatedAt2\xc0\x02\n" +
+	"updated_at\x18\a \x01(\tR\tupdatedAt2\xf6\x01\n" +
 	"\vAuthService\x129\n" +
 	"\bRegister\x12\x15.auth.RegisterRequest\x1a\x16.auth.RegisterResponse\x120\n" +
 	"\x05Login\x12\x12.auth.LoginRequest\x1a\x13.auth.LoginResponse\x123\n" +
 	"\x06Logout\x12\x13.auth.LogoutRequest\x1a\x14.auth.LogoutResponse\x12E\n" +
-	"\fRefreshToken\x12\x19.auth.RefreshTokenRequest\x1a\x1a.auth.RefreshTokenResponse\x12H\n" +
-	"\rValidateToken\x12\x1a.auth.ValidateTokenRequest\x1a\x1b.auth.ValidateTokenResponseB7Z5github.com/Iposhka54/task-tracker/pkg/api/auth;authpbb\x06proto3"
+	"\fRefreshToken\x12\x19.auth.RefreshTokenRequest\x1a\x1a.auth.RefreshTokenResponseB7Z5github.com/Iposhka54/task-tracker/pkg/api/auth;authpbb\x06proto3"
 
 var (
 	file_auth_auth_proto_rawDescOnce sync.Once
@@ -693,39 +590,34 @@ func file_auth_auth_proto_rawDescGZIP() []byte {
 	return file_auth_auth_proto_rawDescData
 }
 
-var file_auth_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_auth_auth_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_auth_auth_proto_goTypes = []any{
-	(*RegisterRequest)(nil),       // 0: auth.RegisterRequest
-	(*RegisterResponse)(nil),      // 1: auth.RegisterResponse
-	(*LoginRequest)(nil),          // 2: auth.LoginRequest
-	(*LoginResponse)(nil),         // 3: auth.LoginResponse
-	(*LogoutRequest)(nil),         // 4: auth.LogoutRequest
-	(*LogoutResponse)(nil),        // 5: auth.LogoutResponse
-	(*RefreshTokenRequest)(nil),   // 6: auth.RefreshTokenRequest
-	(*RefreshTokenResponse)(nil),  // 7: auth.RefreshTokenResponse
-	(*ValidateTokenRequest)(nil),  // 8: auth.ValidateTokenRequest
-	(*ValidateTokenResponse)(nil), // 9: auth.ValidateTokenResponse
-	(*User)(nil),                  // 10: auth.User
+	(*RegisterRequest)(nil),      // 0: auth.RegisterRequest
+	(*RegisterResponse)(nil),     // 1: auth.RegisterResponse
+	(*LoginRequest)(nil),         // 2: auth.LoginRequest
+	(*LoginResponse)(nil),        // 3: auth.LoginResponse
+	(*LogoutRequest)(nil),        // 4: auth.LogoutRequest
+	(*LogoutResponse)(nil),       // 5: auth.LogoutResponse
+	(*RefreshTokenRequest)(nil),  // 6: auth.RefreshTokenRequest
+	(*RefreshTokenResponse)(nil), // 7: auth.RefreshTokenResponse
+	(*User)(nil),                 // 8: auth.User
 }
 var file_auth_auth_proto_depIdxs = []int32{
-	10, // 0: auth.RegisterResponse.user:type_name -> auth.User
-	10, // 1: auth.LoginResponse.user:type_name -> auth.User
-	10, // 2: auth.ValidateTokenResponse.user:type_name -> auth.User
-	0,  // 3: auth.AuthService.Register:input_type -> auth.RegisterRequest
-	2,  // 4: auth.AuthService.Login:input_type -> auth.LoginRequest
-	4,  // 5: auth.AuthService.Logout:input_type -> auth.LogoutRequest
-	6,  // 6: auth.AuthService.RefreshToken:input_type -> auth.RefreshTokenRequest
-	8,  // 7: auth.AuthService.ValidateToken:input_type -> auth.ValidateTokenRequest
-	1,  // 8: auth.AuthService.Register:output_type -> auth.RegisterResponse
-	3,  // 9: auth.AuthService.Login:output_type -> auth.LoginResponse
-	5,  // 10: auth.AuthService.Logout:output_type -> auth.LogoutResponse
-	7,  // 11: auth.AuthService.RefreshToken:output_type -> auth.RefreshTokenResponse
-	9,  // 12: auth.AuthService.ValidateToken:output_type -> auth.ValidateTokenResponse
-	8,  // [8:13] is the sub-list for method output_type
-	3,  // [3:8] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	8, // 0: auth.RegisterResponse.user:type_name -> auth.User
+	8, // 1: auth.LoginResponse.user:type_name -> auth.User
+	0, // 2: auth.AuthService.Register:input_type -> auth.RegisterRequest
+	2, // 3: auth.AuthService.Login:input_type -> auth.LoginRequest
+	4, // 4: auth.AuthService.Logout:input_type -> auth.LogoutRequest
+	6, // 5: auth.AuthService.RefreshToken:input_type -> auth.RefreshTokenRequest
+	1, // 6: auth.AuthService.Register:output_type -> auth.RegisterResponse
+	3, // 7: auth.AuthService.Login:output_type -> auth.LoginResponse
+	5, // 8: auth.AuthService.Logout:output_type -> auth.LogoutResponse
+	7, // 9: auth.AuthService.RefreshToken:output_type -> auth.RefreshTokenResponse
+	6, // [6:10] is the sub-list for method output_type
+	2, // [2:6] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_auth_auth_proto_init() }
@@ -739,7 +631,7 @@ func file_auth_auth_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_auth_auth_proto_rawDesc), len(file_auth_auth_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
