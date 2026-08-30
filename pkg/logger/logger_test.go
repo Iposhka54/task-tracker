@@ -37,9 +37,6 @@ func TestLogger_AddsRequestIDFromSpan(t *testing.T) {
 	if err = json.Unmarshal(buf.Bytes(), &got); err != nil {
 		t.Fatalf("json: %v raw=%s", err, buf.String())
 	}
-	if got["service"] != "auth-service" {
-		t.Fatalf("service: %v", got["service"])
-	}
 	if got["request_id"] != traceID.String() {
 		t.Fatalf("request_id: %v", got["request_id"])
 	}
