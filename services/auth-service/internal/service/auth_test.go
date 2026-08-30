@@ -135,7 +135,7 @@ func TestAuth_Register_ReturnsTokens(t *testing.T) {
 
 	db := newFakeRefreshRepo()
 	cache := newFakeCache()
-	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour)
+	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil)
 
 	got, err := auth.Register(context.Background(), port.RegisterRequest{
 		Email:    "ada@example.com",
@@ -165,7 +165,7 @@ func TestAuth_Login(t *testing.T) {
 	users := newFakeRepo()
 	db := newFakeRefreshRepo()
 	cache := newFakeCache()
-	auth := NewAuth(users, fakeHasher{}, fakeIssuer{}, db, cache, time.Hour)
+	auth := NewAuth(users, fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil)
 	ctx := context.Background()
 
 	reg, err := auth.Register(ctx, port.RegisterRequest{
@@ -197,7 +197,7 @@ func TestAuth_Logout(t *testing.T) {
 
 	db := newFakeRefreshRepo()
 	cache := newFakeCache()
-	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour)
+	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil)
 	ctx := context.Background()
 
 	got, err := auth.Register(ctx, port.RegisterRequest{
@@ -231,7 +231,7 @@ func TestAuth_RefreshToken(t *testing.T) {
 
 	db := newFakeRefreshRepo()
 	cache := newFakeCache()
-	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour)
+	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour, nil)
 	ctx := context.Background()
 
 	reg, err := auth.Register(ctx, port.RegisterRequest{

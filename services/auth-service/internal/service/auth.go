@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/domain"
@@ -20,6 +21,7 @@ type Auth struct {
 	refreshRepo port.RefreshRepo
 	cache       port.Cache
 	refreshTTL  time.Duration
+	log         *slog.Logger
 }
 
 func NewAuth(
@@ -29,7 +31,11 @@ func NewAuth(
 	refreshRepo port.RefreshRepo,
 	cache port.Cache,
 	refreshTTL time.Duration,
+	log *slog.Logger,
 ) *Auth {
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
 	return &Auth{
 		users:       users,
 		hasher:      hasher,
@@ -37,6 +43,7 @@ func NewAuth(
 		refreshRepo: refreshRepo,
 		cache:       cache,
 		refreshTTL:  refreshTTL,
+		log:         log,
 	}
 }
 
@@ -56,14 +63,17 @@ func (a *Auth) Register(ctx context.Context, cmd port.RegisterRequest) (port.Ses
 	}
 
 	if err = a.ensureEmailFree(ctx, email); err != nil {
+		a.log.WarnContext(ctx, "register rejected", "email", email, "error", err)
 		return port.Session{}, err
 	}
 	if err = a.ensureUsernameFree(ctx, username); err != nil {
+		a.log.WarnContext(ctx, "register rejected", "username", username, "error", err)
 		return port.Session{}, err
 	}
 
 	hash, err := a.hasher.Hash(cmd.Password)
 	if err != nil {
+		a.log.ErrorContext(ctx, "hash password", "error", err)
 		return port.Session{}, err
 	}
 
@@ -72,10 +82,16 @@ func (a *Auth) Register(ctx context.Context, cmd port.RegisterRequest) (port.Ses
 		return port.Session{}, err
 	}
 	if err = a.users.Save(ctx, user); err != nil {
+		a.log.ErrorContext(ctx, "save user", "email", email, "error", err)
 		return port.Session{}, err
 	}
 
-	return a.issueSession(ctx, user)
+	sess, err := a.issueSession(ctx, user)
+	if err != nil {
+		return port.Session{}, err
+	}
+	a.log.InfoContext(ctx, "user registered", "user_id", user.ID.String())
+	return sess, nil
 }
 
 func (a *Auth) Login(ctx context.Context, cmd port.LoginRequest) (port.Session, error) {
@@ -90,18 +106,27 @@ func (a *Auth) Login(ctx context.Context, cmd port.LoginRequest) (port.Session, 
 	user, err := a.users.FindByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
+			a.log.WarnContext(ctx, "login failed", "email", email, "error", domain.ErrInvalidCredentials)
 			return port.Session{}, domain.ErrInvalidCredentials
 		}
+		a.log.ErrorContext(ctx, "find user by email", "error", err)
 		return port.Session{}, err
 	}
 	if !user.IsActive {
+		a.log.WarnContext(ctx, "login rejected: inactive user", "user_id", user.ID.String())
 		return port.Session{}, domain.ErrInactive
 	}
 	if err = a.hasher.Compare(user.PasswordHash, cmd.Password); err != nil {
+		a.log.WarnContext(ctx, "login failed", "user_id", user.ID.String(), "error", domain.ErrInvalidCredentials)
 		return port.Session{}, domain.ErrInvalidCredentials
 	}
 
-	return a.issueSession(ctx, user)
+	sess, err := a.issueSession(ctx, user)
+	if err != nil {
+		return port.Session{}, err
+	}
+	a.log.InfoContext(ctx, "user logged in", "user_id", user.ID.String())
+	return sess, nil
 }
 
 func (a *Auth) Logout(ctx context.Context, cmd port.LogoutRequest) error {
@@ -109,27 +134,38 @@ func (a *Auth) Logout(ctx context.Context, cmd port.LogoutRequest) error {
 		return domain.ErrInvalidInput
 	}
 
-	if err := a.refreshRepo.Delete(ctx, cmd.RefreshToken); err != nil {
+	userId, err := a.refreshRepo.Consume(ctx, cmd.RefreshToken)
+	if err != nil {
+		a.log.ErrorContext(ctx, "delete refresh token", "error", err)
 		return err
 	}
 
-	if err := a.cache.Del(ctx, refreshKey(cmd.RefreshToken)); err != nil {
+	if err = a.cache.Del(ctx, refreshKey(cmd.RefreshToken)); err != nil {
 		if errors.Is(err, port.ErrCacheMiss) {
+			a.log.InfoContext(ctx, "user logged out")
 			return nil
 		}
+		a.log.ErrorContext(ctx, "delete refresh cache", "error", err)
 		return err
 	}
 
+	a.log.InfoContext(ctx, "user logged out", "user_id", userId.String())
 	return nil
 }
 
 func (a *Auth) RefreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (port.Session, error) {
+	if cmd.RefreshToken == "" {
+		return port.Session{}, domain.ErrInvalidInput
+	}
+
 	userID, err := a.refreshRepo.Consume(ctx, cmd.RefreshToken)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			_ = a.cache.Del(ctx, refreshKey(cmd.RefreshToken))
+			a.log.WarnContext(ctx, "refresh rejected", "error", domain.ErrInvalidCredentials)
 			return port.Session{}, domain.ErrInvalidCredentials
 		}
+		a.log.ErrorContext(ctx, "consume refresh token", "error", err)
 		return port.Session{}, err
 	}
 
@@ -138,28 +174,39 @@ func (a *Auth) RefreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (
 	user, err := a.users.FindByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
+			a.log.WarnContext(ctx, "refresh rejected: user missing", "user_id", userID.String())
 			return port.Session{}, domain.ErrInvalidCredentials
 		}
+		a.log.ErrorContext(ctx, "find user by id", "user_id", userID.String(), "error", err)
 		return port.Session{}, err
 	}
 	if !user.IsActive {
+		a.log.WarnContext(ctx, "refresh rejected: inactive user", "user_id", user.ID.String())
 		return port.Session{}, domain.ErrInactive
 	}
 
-	return a.issueSession(ctx, user)
+	sess, err := a.issueSession(ctx, user)
+	if err != nil {
+		return port.Session{}, err
+	}
+	a.log.InfoContext(ctx, "tokens rotated", "user_id", user.ID.String())
+	return sess, nil
 }
 
 func (a *Auth) issueSession(ctx context.Context, user domain.User) (port.Session, error) {
 	accessToken, err := a.tokens.IssueAccess(user.ID)
 	if err != nil {
+		a.log.ErrorContext(ctx, "issue access token", "user_id", user.ID.String(), "error", err)
 		return port.Session{}, err
 	}
 
 	refreshToken := uuid.NewString()
 	if err = a.refreshRepo.Save(ctx, user.ID, refreshToken, a.refreshTTL); err != nil {
+		a.log.ErrorContext(ctx, "save refresh token", "user_id", user.ID.String(), "error", err)
 		return port.Session{}, err
 	}
 	if err = a.cache.Set(ctx, refreshKey(refreshToken), user.ID.String(), a.refreshTTL); err != nil {
+		a.log.ErrorContext(ctx, "cache refresh token", "user_id", user.ID.String(), "error", err)
 		return port.Session{}, err
 	}
 
