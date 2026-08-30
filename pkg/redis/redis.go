@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -20,6 +21,10 @@ func New(ctx context.Context, cfg Config) (*goredis.Client, error) {
 		Password: cfg.Password,
 		DB:       cfg.DB,
 	})
+	if err := redisotel.InstrumentTracing(client); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("instrument redis: %w", err)
+	}
 	if err := client.Ping(ctx).Err(); err != nil {
 		_ = client.Close()
 		return nil, fmt.Errorf("ping redis: %w", err)
