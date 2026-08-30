@@ -2,6 +2,7 @@ go 1.25.5
 
 use (
 	./pkg/api
+	./pkg/logger
 	./pkg/postgres
 	./pkg/redis
 	./pkg/telemetry
