@@ -28,6 +28,15 @@ func (r *fakeRepo) Save(_ context.Context, u domain.User) error {
 	return nil
 }
 
+func (r *fakeRepo) FindByID(_ context.Context, id uuid.UUID) (domain.User, error) {
+	for _, u := range r.byEmail {
+		if u.ID == id {
+			return u, nil
+		}
+	}
+	return domain.User{}, domain.ErrNotFound
+}
+
 func (r *fakeRepo) FindByEmail(_ context.Context, email string) (domain.User, error) {
 	u, ok := r.byEmail[email]
 	if !ok {
@@ -76,6 +85,15 @@ func newFakeRefreshRepo() *fakeRefreshRepo {
 func (s *fakeRefreshRepo) Save(_ context.Context, userID uuid.UUID, token string, _ time.Duration) error {
 	s.tokens[token] = userID
 	return nil
+}
+
+func (s *fakeRefreshRepo) Consume(_ context.Context, token string) (uuid.UUID, error) {
+	id, ok := s.tokens[token]
+	if !ok {
+		return uuid.Nil, domain.ErrNotFound
+	}
+	delete(s.tokens, token)
+	return id, nil
 }
 
 func (s *fakeRefreshRepo) Delete(_ context.Context, token string) error {
@@ -205,5 +223,62 @@ func TestAuth_Logout(t *testing.T) {
 
 	if err = auth.Logout(ctx, port.LogoutRequest{RefreshToken: got.RefreshToken}); err != nil {
 		t.Fatalf("second Logout: %v", err)
+	}
+}
+
+func TestAuth_RefreshToken(t *testing.T) {
+	t.Parallel()
+
+	db := newFakeRefreshRepo()
+	cache := newFakeCache()
+	auth := NewAuth(newFakeRepo(), fakeHasher{}, fakeIssuer{}, db, cache, time.Hour)
+	ctx := context.Background()
+
+	reg, err := auth.Register(ctx, port.RegisterRequest{
+		Email: "ada@example.com", Password: "secret123", Username: "ada",
+	})
+	if err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	_, err = auth.RefreshToken(ctx, port.RefreshTokenRequest{})
+	if err != domain.ErrInvalidInput {
+		t.Fatalf("empty token: %v", err)
+	}
+
+	got, err := auth.RefreshToken(ctx, port.RefreshTokenRequest{RefreshToken: reg.RefreshToken})
+	if err != nil {
+		t.Fatalf("RefreshToken: %v", err)
+	}
+	if got.User.ID != reg.User.ID {
+		t.Fatalf("user id: %s", got.User.ID)
+	}
+	if got.RefreshToken == "" || got.RefreshToken == reg.RefreshToken {
+		t.Fatal("refresh was not rotated")
+	}
+	if got.AccessToken == "" {
+		t.Fatal("empty access token")
+	}
+	if _, ok := db.tokens[reg.RefreshToken]; ok {
+		t.Fatal("old refresh still in db")
+	}
+	if _, ok := cache.data[refreshKey(reg.RefreshToken)]; ok {
+		t.Fatal("old refresh still in cache")
+	}
+	if _, ok := db.tokens[got.RefreshToken]; !ok {
+		t.Fatal("new refresh not in db")
+	}
+	if cache.data[refreshKey(got.RefreshToken)] != got.User.ID.String() {
+		t.Fatal("new refresh not in cache")
+	}
+
+	_, err = auth.RefreshToken(ctx, port.RefreshTokenRequest{RefreshToken: reg.RefreshToken})
+	if err != domain.ErrInvalidCredentials {
+		t.Fatalf("reused token: %v", err)
+	}
+
+	_, err = auth.RefreshToken(ctx, port.RefreshTokenRequest{RefreshToken: "unknown"})
+	if err != domain.ErrInvalidCredentials {
+		t.Fatalf("unknown token: %v", err)
 	}
 }
