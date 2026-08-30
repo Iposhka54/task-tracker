@@ -6,6 +6,7 @@ import (
 
 	"github.com/Iposhka54/task-tracker/pkg/postgres"
 	pkgredis "github.com/Iposhka54/task-tracker/pkg/redis"
+	"github.com/Iposhka54/task-tracker/pkg/telemetry"
 	"github.com/ilyakaznacheev/cleanenv"
 )
 
@@ -16,16 +17,17 @@ type JWTConfig struct {
 }
 
 type Config struct {
-	GRPCPort int
-	Postgres postgres.Config `env:"POSTGRES"`
-	Redis    pkgredis.Config `env:"REDIS"`
-	JWT      JWTConfig
+	GRPCPort  int
+	Postgres  postgres.Config `env:"POSTGRES"`
+	Redis     pkgredis.Config `env:"REDIS"`
+	JWT       JWTConfig
+	Telemetry telemetry.Config
 }
 
 func New() (Config, error) {
 	var cfg Config
 
-	if err := cleanenv.ReadEnv(cfg); err != nil {
+	if err := cleanenv.ReadEnv(&cfg); err != nil {
 		return Config{}, fmt.Errorf("failed to read env vars: %w", err)
 	}
 
@@ -52,6 +54,13 @@ func Default() Config {
 			Secret:     "dev-only-change-me",
 			AccessTTL:  15 * time.Minute,
 			RefreshTTL: 30 * 24 * time.Hour,
+		},
+		Telemetry: telemetry.Config{
+			Endpoint:     "localhost:4317",
+			Environment:  "development",
+			SamplingRate: 1.0,
+			BatchTimeout: 5 * time.Second,
+			Insecure:     true,
 		},
 	}
 }
