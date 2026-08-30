@@ -10,8 +10,11 @@ replace github.com/Iposhka54/task-tracker/pkg/redis => ../../pkg/redis
 
 replace github.com/Iposhka54/task-tracker/pkg/telemetry => ../../pkg/telemetry
 
+replace github.com/Iposhka54/task-tracker/pkg/logger => ../../pkg/logger
+
 require (
 	github.com/Iposhka54/task-tracker/pkg/api v0.0.0-00010101000000-000000000000
+	github.com/Iposhka54/task-tracker/pkg/logger v0.0.0-00010101000000-000000000000
 	github.com/Iposhka54/task-tracker/pkg/postgres v0.0.0-00010101000000-000000000000
 	github.com/Iposhka54/task-tracker/pkg/redis v0.0.0-00010101000000-000000000000
 	github.com/Iposhka54/task-tracker/pkg/telemetry v0.0.0-00010101000000-000000000000
