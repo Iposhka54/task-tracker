@@ -83,7 +83,6 @@ func main() {
 		pgadapter.NewRefreshRepo(dbPool),
 		redisadapter.NewCache(rdb),
 		cfg.JWT.RefreshTTL,
-		log,
 		authMetrics,
 	)
 
@@ -99,7 +98,7 @@ func main() {
 			otelgrpc.WithMeterProvider(otel.GetMeterProvider()),
 			otelgrpc.WithPropagators(otel.GetTextMapPropagator()),
 		)),
-		grpc.UnaryInterceptor(grpcadapter.UnaryLogger(log)),
+		grpc.UnaryInterceptor(grpcadapter.UnaryLogger),
 	)
 
 	authpb.RegisterAuthServiceServer(srv, grpcadapter.New(auth))
