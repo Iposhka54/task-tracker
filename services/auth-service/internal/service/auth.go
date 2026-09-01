@@ -22,7 +22,6 @@ type Auth struct {
 	refreshRepo port.RefreshRepo
 	cache       port.Cache
 	refreshTTL  time.Duration
-	log         *slog.Logger
 	metrics     *metrics.AuthMetrics
 }
 
@@ -33,12 +32,8 @@ func NewAuth(
 	refreshRepo port.RefreshRepo,
 	cache port.Cache,
 	refreshTTL time.Duration,
-	log *slog.Logger,
 	metrics *metrics.AuthMetrics,
 ) *Auth {
-	if log == nil {
-		log = slog.New(slog.DiscardHandler)
-	}
 	return &Auth{
 		users:       users,
 		hasher:      hasher,
@@ -46,7 +41,6 @@ func NewAuth(
 		refreshRepo: refreshRepo,
 		cache:       cache,
 		refreshTTL:  refreshTTL,
-		log:         log,
 		metrics:     metrics,
 	}
 }
@@ -73,17 +67,17 @@ func (a *Auth) register(ctx context.Context, cmd port.RegisterRequest) (port.Ses
 	}
 
 	if err = a.ensureEmailFree(ctx, email); err != nil {
-		a.log.WarnContext(ctx, "register rejected", "email", email, "error", err)
+		slog.WarnContext(ctx, "register rejected", "email", email, "error", err)
 		return port.Session{}, err
 	}
 	if err = a.ensureUsernameFree(ctx, username); err != nil {
-		a.log.WarnContext(ctx, "register rejected", "username", username, "error", err)
+		slog.WarnContext(ctx, "register rejected", "username", username, "error", err)
 		return port.Session{}, err
 	}
 
 	hash, err := a.hasher.Hash(cmd.Password)
 	if err != nil {
-		a.log.ErrorContext(ctx, "hash password", "error", err)
+		slog.ErrorContext(ctx, "hash password", "error", err)
 		return port.Session{}, err
 	}
 
@@ -92,7 +86,7 @@ func (a *Auth) register(ctx context.Context, cmd port.RegisterRequest) (port.Ses
 		return port.Session{}, err
 	}
 	if err = a.users.Save(ctx, user); err != nil {
-		a.log.ErrorContext(ctx, "save user", "email", email, "error", err)
+		slog.ErrorContext(ctx, "save user", "email", email, "error", err)
 		return port.Session{}, err
 	}
 
@@ -102,7 +96,7 @@ func (a *Auth) register(ctx context.Context, cmd port.RegisterRequest) (port.Ses
 	}
 	a.metrics.UserRegistered(ctx)
 	a.metrics.SessionOpened(ctx)
-	a.log.InfoContext(ctx, "user registered", "user_id", user.ID.String())
+	slog.InfoContext(ctx, "user registered", "user_id", user.ID.String())
 	return sess, nil
 }
 
@@ -124,18 +118,18 @@ func (a *Auth) login(ctx context.Context, cmd port.LoginRequest) (port.Session, 
 	user, err := a.users.FindByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
-			a.log.WarnContext(ctx, "login failed", "email", email, "error", domain.ErrInvalidCredentials)
+			slog.WarnContext(ctx, "login failed", "email", email, "error", domain.ErrInvalidCredentials)
 			return port.Session{}, domain.ErrInvalidCredentials
 		}
-		a.log.ErrorContext(ctx, "find user by email", "error", err)
+		slog.ErrorContext(ctx, "find user by email", "error", err)
 		return port.Session{}, err
 	}
 	if !user.IsActive {
-		a.log.WarnContext(ctx, "login rejected: inactive user", "user_id", user.ID.String())
+		slog.WarnContext(ctx, "login rejected: inactive user", "user_id", user.ID.String())
 		return port.Session{}, domain.ErrInactive
 	}
 	if err = a.hasher.Compare(user.PasswordHash, cmd.Password); err != nil {
-		a.log.WarnContext(ctx, "login failed", "user_id", user.ID.String(), "error", domain.ErrInvalidCredentials)
+		slog.WarnContext(ctx, "login failed", "user_id", user.ID.String(), "error", domain.ErrInvalidCredentials)
 		return port.Session{}, domain.ErrInvalidCredentials
 	}
 
@@ -144,7 +138,7 @@ func (a *Auth) login(ctx context.Context, cmd port.LoginRequest) (port.Session, 
 		return port.Session{}, err
 	}
 	a.metrics.SessionOpened(ctx)
-	a.log.InfoContext(ctx, "user logged in", "user_id", user.ID.String())
+	slog.InfoContext(ctx, "user logged in", "user_id", user.ID.String())
 	return sess, nil
 }
 
@@ -161,21 +155,21 @@ func (a *Auth) logout(ctx context.Context, cmd port.LogoutRequest) error {
 
 	userId, err := a.refreshRepo.Consume(ctx, cmd.RefreshToken)
 	if err != nil {
-		a.log.ErrorContext(ctx, "delete refresh token", "error", err)
+		slog.ErrorContext(ctx, "delete refresh token", "error", err)
 		return err
 	}
 	a.metrics.SessionClosed(ctx)
 
 	if err = a.cache.Del(ctx, refreshKey(cmd.RefreshToken)); err != nil {
 		if errors.Is(err, port.ErrCacheMiss) {
-			a.log.InfoContext(ctx, "user logged out")
+			slog.InfoContext(ctx, "user logged out")
 			return nil
 		}
-		a.log.ErrorContext(ctx, "delete refresh cache", "error", err)
+		slog.ErrorContext(ctx, "delete refresh cache", "error", err)
 		return err
 	}
 
-	a.log.InfoContext(ctx, "user logged out", "user_id", userId.String())
+	slog.InfoContext(ctx, "user logged out", "user_id", userId.String())
 	return nil
 }
 
@@ -194,10 +188,10 @@ func (a *Auth) refreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			_ = a.cache.Del(ctx, refreshKey(cmd.RefreshToken))
-			a.log.WarnContext(ctx, "refresh rejected", "error", domain.ErrInvalidCredentials)
+			slog.WarnContext(ctx, "refresh rejected", "error", domain.ErrInvalidCredentials)
 			return port.Session{}, domain.ErrInvalidCredentials
 		}
-		a.log.ErrorContext(ctx, "consume refresh token", "error", err)
+		slog.ErrorContext(ctx, "consume refresh token", "error", err)
 		return port.Session{}, err
 	}
 
@@ -207,15 +201,15 @@ func (a *Auth) refreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (
 	if err != nil {
 		a.metrics.SessionClosed(ctx)
 		if errors.Is(err, domain.ErrNotFound) {
-			a.log.WarnContext(ctx, "refresh rejected: user missing", "user_id", userID.String())
+			slog.WarnContext(ctx, "refresh rejected: user missing", "user_id", userID.String())
 			return port.Session{}, domain.ErrInvalidCredentials
 		}
-		a.log.ErrorContext(ctx, "find user by id", "user_id", userID.String(), "error", err)
+		slog.ErrorContext(ctx, "find user by id", "user_id", userID.String(), "error", err)
 		return port.Session{}, err
 	}
 	if !user.IsActive {
 		a.metrics.SessionClosed(ctx)
-		a.log.WarnContext(ctx, "refresh rejected: inactive user", "user_id", user.ID.String())
+		slog.WarnContext(ctx, "refresh rejected: inactive user", "user_id", user.ID.String())
 		return port.Session{}, domain.ErrInactive
 	}
 
@@ -224,24 +218,24 @@ func (a *Auth) refreshToken(ctx context.Context, cmd port.RefreshTokenRequest) (
 		a.metrics.SessionClosed(ctx)
 		return port.Session{}, err
 	}
-	a.log.InfoContext(ctx, "tokens rotated", "user_id", user.ID.String())
+	slog.InfoContext(ctx, "tokens rotated", "user_id", user.ID.String())
 	return sess, nil
 }
 
 func (a *Auth) issueSession(ctx context.Context, user domain.User) (port.Session, error) {
 	accessToken, err := a.tokens.IssueAccess(ctx, user.ID)
 	if err != nil {
-		a.log.ErrorContext(ctx, "issue access token", "user_id", user.ID.String(), "error", err)
+		slog.ErrorContext(ctx, "issue access token", "user_id", user.ID.String(), "error", err)
 		return port.Session{}, err
 	}
 
 	refreshToken := uuid.NewString()
 	if err = a.refreshRepo.Save(ctx, user.ID, refreshToken, a.refreshTTL); err != nil {
-		a.log.ErrorContext(ctx, "save refresh token", "user_id", user.ID.String(), "error", err)
+		slog.ErrorContext(ctx, "save refresh token", "user_id", user.ID.String(), "error", err)
 		return port.Session{}, err
 	}
 	if err = a.cache.Set(ctx, refreshKey(refreshToken), user.ID.String(), a.refreshTTL); err != nil {
-		a.log.ErrorContext(ctx, "cache refresh token", "user_id", user.ID.String(), "error", err)
+		slog.ErrorContext(ctx, "cache refresh token", "user_id", user.ID.String(), "error", err)
 		return port.Session{}, err
 	}
 
