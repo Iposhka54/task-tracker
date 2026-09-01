@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/Iposhka54/task-tracker/pkg/logger"
@@ -38,41 +37,4 @@ func New() (Config, error) {
 	}
 
 	return cfg, nil
-}
-
-func Default() Config {
-	return Config{
-		GRPCPort: 9001,
-		Postgres: postgres.Config{
-			Host:     "localhost",
-			Port:     5432,
-			Username: "postgres",
-			Password: "postgres",
-			Database: "auth",
-			MaxConns: 10,
-			MinConns: 1,
-		},
-		Redis: pkgredis.Config{
-			Host: "localhost",
-			Port: 6379,
-		},
-		JWT: JWTConfig{
-			Secret:     "dev-only-change-me",
-			AccessTTL:  15 * time.Minute,
-			RefreshTTL: 30 * 24 * time.Hour,
-		},
-		Telemetry: telemetry.Config{
-			TraceEndpoint:   "localhost:4317",
-			TraceInsecure:   true,
-			MetricsEndpoint: "localhost:9090",
-			MetricsURLPath:  "/api/v1/otlp/v1/metrics",
-			MetricsInsecure: true,
-			Environment:     "development",
-			SamplingRate:    1.0,
-			BatchTimeout:    5 * time.Second,
-		},
-		Log: logger.Config{
-			Level: slog.LevelInfo,
-		},
-	}
 }
