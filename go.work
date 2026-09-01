@@ -7,4 +7,5 @@ use (
 	./pkg/redis
 	./pkg/telemetry
 	./services/auth-service
+	./services/gateway
 )
