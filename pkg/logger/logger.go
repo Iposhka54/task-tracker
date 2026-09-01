@@ -29,7 +29,7 @@ type ctxHandler struct {
 func (h *ctxHandler) Handle(ctx context.Context, r slog.Record) error {
 	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
 		r.AddAttrs(
-			slog.String("request_id", sc.TraceID().String()),
+			slog.String("trace_id", sc.TraceID().String()),
 			slog.String("span_id", sc.SpanID().String()),
 		)
 	}
