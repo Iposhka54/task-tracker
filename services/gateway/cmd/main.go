@@ -13,6 +13,7 @@ import (
 	authpb "github.com/Iposhka54/task-tracker/pkg/api/auth"
 	pkglogger "github.com/Iposhka54/task-tracker/pkg/logger"
 	"github.com/Iposhka54/task-tracker/pkg/telemetry"
+	"github.com/Iposhka54/task-tracker/services/gateway/internal/adapter/http/middleware"
 	"github.com/Iposhka54/task-tracker/services/gateway/internal/config"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -72,11 +73,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := otelhttp.NewHandler(gwMux, serviceName,
+	handler := middleware.RequestLog(otelhttp.NewHandler(gwMux, serviceName,
 		otelhttp.WithTracerProvider(otel.GetTracerProvider()),
 		otelhttp.WithMeterProvider(otel.GetMeterProvider()),
 		otelhttp.WithPropagators(otel.GetTextMapPropagator()),
-	)
+	))
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler: handler,
