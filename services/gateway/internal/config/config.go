@@ -28,13 +28,14 @@ type RateLimitConfig struct {
 }
 
 type Config struct {
-	HTTPPort     int             `env:"HTTP_PORT" env-default:"80"`
-	AuthGRPCAddr string          `env:"AUTH_GRPC_ADDRESS" env-default:"localhost:9001"`
-	Redis        pkgredis.Config `env-prefix:"REDIS_"`
-	JWT          JWTConfig       `env-prefix:"JWT_"`
-	RateLimit    RateLimitConfig `env-prefix:"RATE_LIMIT_"`
-	Telemetry    telemetry.Config
-	Log          logger.Config
+	HTTPPort         int             `env:"HTTP_PORT" env-default:"80"`
+	AuthGRPCAddr     string          `env:"AUTH_GRPC_ADDRESS" env-default:"localhost:9001"`
+	AuthGRPCInsecure bool            `env:"AUTH_GRPC_INSECURE" env-default:"true"`
+	Redis            pkgredis.Config `env-prefix:"REDIS_"`
+	JWT              JWTConfig       `env-prefix:"JWT_"`
+	RateLimit        RateLimitConfig `env-prefix:"RATE_LIMIT_"`
+	Telemetry        telemetry.Config
+	Log              logger.Config
 }
 
 func New() (Config, error) {
