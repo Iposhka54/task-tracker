@@ -15,6 +15,7 @@ import (
 	"github.com/Iposhka54/task-tracker/pkg/telemetry"
 	"github.com/Iposhka54/task-tracker/services/gateway/internal/adapter/http/middleware"
 	"github.com/Iposhka54/task-tracker/services/gateway/internal/config"
+	"github.com/Iposhka54/task-tracker/services/gateway/internal/limiter"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -73,11 +74,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	handler := middleware.RequestLog(otelhttp.NewHandler(gwMux, serviceName,
-		otelhttp.WithTracerProvider(otel.GetTracerProvider()),
-		otelhttp.WithMeterProvider(otel.GetMeterProvider()),
-		otelhttp.WithPropagators(otel.GetTextMapPropagator()),
-	))
+	authLimiter := limiter.NewCleanableRateLimiter(
+		cfg.RateLimit.Auth.RPM,
+		cfg.RateLimit.Auth.Burst,
+		cfg.RateLimit.CleanupInterval,
+		cfg.RateLimit.MaxAge,
+	)
+	apiLimiter := limiter.NewCleanableRateLimiter(
+		cfg.RateLimit.API.RPM,
+		cfg.RateLimit.API.Burst,
+		cfg.RateLimit.CleanupInterval,
+		cfg.RateLimit.MaxAge,
+	)
+	handler := middleware.Limiter(authLimiter, apiLimiter, middleware.RequestLog(
+		otelhttp.NewHandler(gwMux, serviceName,
+			otelhttp.WithTracerProvider(otel.GetTracerProvider()),
+			otelhttp.WithMeterProvider(otel.GetMeterProvider()),
+			otelhttp.WithPropagators(otel.GetTextMapPropagator()),
+		)))
 	server := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler: handler,
