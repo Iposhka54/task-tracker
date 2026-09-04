@@ -17,7 +17,11 @@ func Limiter(auth, api *limiter.CleanableRateLimiter, next http.Handler) http.Ha
 		}
 
 		crl := api
-		if strings.HasPrefix(r.URL.Path, authAPIPrefix) {
+		switch {
+		case r.URL.Path == "/health":
+			next.ServeHTTP(w, r)
+			return
+		case strings.HasPrefix(r.URL.Path, authAPIPrefix):
 			crl = auth
 		}
 		if !crl.GetLimiter(ip).Allow() {

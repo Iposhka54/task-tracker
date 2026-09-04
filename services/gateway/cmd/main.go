@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -22,6 +23,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 const serviceName = "gateway"
@@ -34,6 +37,7 @@ func main() {
 	}
 
 	log := pkglogger.New(cfg.Log)
+	slog.SetDefault(log)
 
 	ctx := context.Background()
 
@@ -53,26 +57,45 @@ func main() {
 		cancel()
 	}()
 
-	conn, err := grpc.NewClient(cfg.AuthGRPCAddr,
-		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})),
+	dialOpts := []grpc.DialOption{
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler(
 			otelgrpc.WithTracerProvider(otel.GetTracerProvider()),
 			otelgrpc.WithMeterProvider(otel.GetMeterProvider()),
 			otelgrpc.WithPropagators(otel.GetTextMapPropagator()),
 		)),
-	)
+	}
+	if cfg.AuthGRPCInsecure {
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	} else {
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})))
+	}
+
+	conn, err := grpc.NewClient(cfg.AuthGRPCAddr, dialOpts...)
 	if err != nil {
 		log.Error("dial auth-service", "error", err, "addr", cfg.AuthGRPCAddr)
 		os.Exit(1)
 	}
 	defer conn.Close()
 
-	gwMux := runtime.NewServeMux()
+	gwMux := runtime.NewServeMux(
+		runtime.WithMetadata(func(ctx context.Context, _ *http.Request) metadata.MD {
+			if uid := middleware.UserIDFromContext(ctx); uid != "" {
+				return metadata.Pairs("user-id", uid)
+			}
+			return nil
+		}),
+	)
 
 	if err = authpb.RegisterAuthServiceHandler(ctx, gwMux, conn); err != nil {
 		log.Error("register auth gateway", "error", err)
 		os.Exit(1)
 	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.Handle("/", gwMux)
 
 	authLimiter := limiter.NewCleanableRateLimiter(
 		cfg.RateLimit.Auth.RPM,
@@ -86,20 +109,24 @@ func main() {
 		cfg.RateLimit.CleanupInterval,
 		cfg.RateLimit.MaxAge,
 	)
-	handler := middleware.Limiter(authLimiter, apiLimiter, middleware.RequestLog(
-		otelhttp.NewHandler(gwMux, serviceName,
+	handler := middleware.Limiter(authLimiter, apiLimiter, middleware.JWT(cfg.JWT.Secret, middleware.RequestLog(
+		otelhttp.NewHandler(mux, serviceName,
 			otelhttp.WithTracerProvider(otel.GetTracerProvider()),
 			otelhttp.WithMeterProvider(otel.GetMeterProvider()),
 			otelhttp.WithPropagators(otel.GetTextMapPropagator()),
-		)))
+		),
+	)))
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.HTTPPort),
-		Handler: handler,
+		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	go func() {
 		log.Info("Gateway started", "http_port", cfg.HTTPPort)
-		if err = server.ListenAndServe(); err != nil {
+		if err = server.ListenAndServe(); err != nil && !errors.Is(http.ErrServerClosed, err) {
 			log.Error("serve", "error", err)
 			stop()
 		}
