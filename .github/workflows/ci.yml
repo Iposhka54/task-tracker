@@ -15,6 +15,18 @@ env:
   REGISTRY: ghcr.io
 
 jobs:
+  discover-services:
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.find.outputs.services }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: find
+        run: |
+          services=$(find services -maxdepth 2 -name "Dockerfile" -printf "%h\n" | sed 's|services/||' | sort | jq -R -s -c 'split("\n")[:-1]')
+          echo "services=$services" >> $GITHUB_OUTPUT
+          echo "Found services: $services"
+
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -44,7 +56,7 @@ jobs:
 
   image:
     name: Image (${{ matrix.name }})
-    needs: test
+    needs: [test, discover-services]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -52,10 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: auth-service
-            dockerfile: services/auth-service/Dockerfile
-            context: .
+        service: ${{ fromJSON(needs.discover-services.outputs.services) }}
     steps:
       - uses: actions/checkout@v5
 
@@ -71,7 +80,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.name }}
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=ref,event=branch
@@ -80,10 +89,10 @@ jobs:
 
       - uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
-          file: ${{ matrix.dockerfile }}
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
