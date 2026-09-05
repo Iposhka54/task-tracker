@@ -27,11 +27,11 @@ type Limiter struct {
 	scope   string
 	rate    float64
 	burst   int
-	metrics *metric.GatewayMetrics
+	metrics metric.Metrics
 	retrier retry.Retrier
 }
 
-func New(rdb *redis.Client, scope string, rpm float64, burst int, metrics *metric.GatewayMetrics) *Limiter {
+func New(rdb *redis.Client, scope string, rpm float64, burst int, metrics metric.Metrics) *Limiter {
 	if burst < 1 {
 		burst = 1
 	}
