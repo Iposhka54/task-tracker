@@ -28,11 +28,12 @@ type ctxHandler struct {
 
 func (h *ctxHandler) Handle(ctx context.Context, r slog.Record) error {
 	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
-		r.AddAttrs(
-			slog.String("trace_id", sc.TraceID().String()),
-			slog.Bool("sampled", sc.TraceFlags().IsSampled()),
-			slog.String("span_id", sc.SpanID().String()),
-		)
+		if sc.TraceFlags().IsSampled() {
+			r.AddAttrs(
+				slog.String("trace_id", sc.TraceID().String()),
+				slog.String("span_id", sc.SpanID().String()),
+			)
+		}
 	}
 	return h.Handler.Handle(ctx, r)
 }
