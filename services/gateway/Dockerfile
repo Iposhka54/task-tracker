@@ -5,13 +5,16 @@ WORKDIR /src
 COPY services/gateway/go.mod services/gateway/go.mod
 COPY services/gateway/go.sum services/gateway/go.sum
 
-COPY pkg ./pkg
+RUN cd services/gateway && go mod download
 
+COPY pkg ./pkg
 COPY services/gateway ./services/gateway
 
 WORKDIR /src/services/gateway
 
-RUN CGO_ENABLED=0 go build -o /out/gateway ./cmd
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s" \
+    -o /out/gateway ./cmd
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
