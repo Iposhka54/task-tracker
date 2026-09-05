@@ -18,6 +18,7 @@ import (
 	"github.com/Iposhka54/task-tracker/services/gateway/internal/adapter/http/middleware"
 	"github.com/Iposhka54/task-tracker/services/gateway/internal/config"
 	"github.com/Iposhka54/task-tracker/services/gateway/internal/limiter"
+	gatewaymetrics "github.com/Iposhka54/task-tracker/services/gateway/internal/metric"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -64,6 +65,12 @@ func main() {
 		os.Exit(1)
 	}
 	defer rdb.Close()
+
+	metrics, err := gatewaymetrics.New(otel.Meter(serviceName))
+	if err != nil {
+		log.Error("create metrics", "error", err)
+		os.Exit(1)
+	}
 
 	dialOpts := []grpc.DialOption{
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler(
