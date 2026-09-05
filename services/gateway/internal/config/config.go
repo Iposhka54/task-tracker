@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/Iposhka54/task-tracker/pkg/logger"
 	pkgredis "github.com/Iposhka54/task-tracker/pkg/redis"
@@ -21,10 +20,8 @@ type RateLimitBucket struct {
 }
 
 type RateLimitConfig struct {
-	Auth            RateLimitBucket `env-prefix:"AUTH_"`
-	API             RateLimitBucket `env-prefix:"API_"`
-	CleanupInterval time.Duration   `env:"CLEANUP_INTERVAL" env-default:"5m"`
-	MaxAge          time.Duration   `env:"MAX_AGE" env-default:"10m"`
+	Auth RateLimitBucket `env-prefix:"AUTH_"`
+	API  RateLimitBucket `env-prefix:"API_"`
 }
 
 type Config struct {

@@ -5,6 +5,7 @@ use (
 	./pkg/logger
 	./pkg/postgres
 	./pkg/redis
+	./pkg/retry
 	./pkg/telemetry
 	./services/auth-service
 	./services/gateway
