@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/domain"
-	"github.com/Iposhka54/task-tracker/services/auth-service/internal/metrics"
+	"github.com/Iposhka54/task-tracker/services/auth-service/internal/metric"
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/port"
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/validate"
 	"github.com/google/uuid"
@@ -22,7 +22,7 @@ type Auth struct {
 	refreshRepo port.RefreshRepo
 	cache       port.Cache
 	refreshTTL  time.Duration
-	metrics     *metrics.AuthMetrics
+	metrics     *metric.AuthMetrics
 }
 
 func NewAuth(
@@ -32,7 +32,7 @@ func NewAuth(
 	refreshRepo port.RefreshRepo,
 	cache port.Cache,
 	refreshTTL time.Duration,
-	metrics *metrics.AuthMetrics,
+	metrics *metric.AuthMetrics,
 ) *Auth {
 	return &Auth{
 		users:       users,

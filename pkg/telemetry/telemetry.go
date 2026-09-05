@@ -21,7 +21,7 @@ type Config struct {
 	TraceInsecure bool   `env:"TRACE_INSECURE" env-default:"true"`
 
 	MetricsEndpoint string `env:"METRICS_ENDPOINT" env-default:"localhost:9090"`
-	MetricsURLPath  string `env:"METRICS_URL_PATH" env-default:"/api/v1/otlp/v1/metrics"`
+	MetricsURLPath  string `env:"METRICS_URL_PATH" env-default:"/api/v1/otlp/v1/metric"`
 	MetricsInsecure bool   `env:"METRICS_INSECURE" env-default:"true"`
 
 	Environment string `env:"ENVIRONMENT" env-default:"development"`

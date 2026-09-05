@@ -20,7 +20,7 @@ import (
 	pgadapter "github.com/Iposhka54/task-tracker/services/auth-service/internal/adapter/postgres"
 	redisadapter "github.com/Iposhka54/task-tracker/services/auth-service/internal/adapter/redis"
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/config"
-	authmetrics "github.com/Iposhka54/task-tracker/services/auth-service/internal/metrics"
+	authmetrics "github.com/Iposhka54/task-tracker/services/auth-service/internal/metric"
 	"github.com/Iposhka54/task-tracker/services/auth-service/internal/service"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel"
@@ -72,7 +72,7 @@ func main() {
 
 	authMetrics, err := authmetrics.New(otel.Meter(serviceName))
 	if err != nil {
-		log.Error("init auth metrics", "error", err)
+		log.Error("init auth metric", "error", err)
 		os.Exit(1)
 	}
 

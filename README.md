@@ -1116,7 +1116,7 @@ spec:
         - containerPort: 9002
           name: grpc
         - containerPort: 9102
-          name: metrics
+          name: metric
         env:
         - name: DATABASE_URL
           valueFrom:

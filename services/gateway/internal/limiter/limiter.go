@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Iposhka54/task-tracker/pkg/retry"
+	"github.com/Iposhka54/task-tracker/services/gateway/internal/metric"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -27,6 +28,7 @@ type Limiter struct {
 	rate    float64
 	burst   int
 	retrier retry.Retrier
+	metrics metric.GatewayMetrics
 }
 
 func New(rdb *redis.Client, scope string, rpm float64, burst int) *Limiter {
@@ -111,8 +113,8 @@ func (l *Limiter) tryAllow(ctx context.Context, redisKey string, now time.Time) 
 			return nil
 		})
 
-		if err != nil && errors.Is(err, redis.TxFailedErr) { //watch error, value in bucket was changed
-
+		if err != nil && errors.Is(err, redis.TxFailedErr) {
+			l.metrics.RegisterRedisBucketConflict(ctx) //watch error, value in bucket was change
 		}
 		return err
 	}, redisKey)
