@@ -94,8 +94,8 @@ func main() {
 
 	gwMux := runtime.NewServeMux(
 		runtime.WithMetadata(func(ctx context.Context, _ *http.Request) metadata.MD {
-			if uid := middleware.UserIDFromContext(ctx); uid != "" {
-				return metadata.Pairs(middleware.UserIDMetadataKey, uid)
+			if md := middleware.UserMetadataFromContext(ctx); md != nil {
+				return md
 			}
 			return nil
 		}),
