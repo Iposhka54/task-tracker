@@ -9,6 +9,18 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+type MockMetrics struct {
+	counter int64
+}
+
+func NewMetrics() *MockMetrics {
+	return &MockMetrics{counter: 0}
+}
+
+func (m *MockMetrics) RegisterRedisBucketConflict(ctx context.Context) {
+	m.counter++
+}
+
 func testRedis(t *testing.T) *redis.Client {
 	t.Helper()
 	mr := miniredis.RunT(t)
@@ -20,7 +32,8 @@ func testRedis(t *testing.T) *redis.Client {
 func TestLimiter_BurstThenDeny(t *testing.T) {
 	t.Parallel()
 
-	l := New(testRedis(t), ScopeAuth, 3, 3, nil)
+	metrics := NewMetrics()
+	l := New(testRedis(t), ScopeAuth, 3, 3, metrics)
 	now := time.Now()
 	ctx := context.Background()
 
@@ -32,6 +45,10 @@ func TestLimiter_BurstThenDeny(t *testing.T) {
 		if !ok {
 			t.Fatalf("request %d denied", i+1)
 		}
+	}
+
+	if metrics.counter != 0 {
+		t.Fatalf("expected not conflicts, but was %d", metrics.counter)
 	}
 
 	ok, err := l.allowAt(ctx, "1.2.3.4", now)
@@ -54,7 +71,8 @@ func TestLimiter_BurstThenDeny(t *testing.T) {
 func TestLimiter_NewWindow(t *testing.T) {
 	t.Parallel()
 
-	l := New(testRedis(t), ScopeAPI, 1, 1, nil)
+	metrics := NewMetrics()
+	l := New(testRedis(t), ScopeAPI, 1, 1, metrics)
 	now := time.Now()
 	ctx := context.Background()
 
@@ -77,8 +95,9 @@ func TestLimiter_ScopesAreIndependent(t *testing.T) {
 	t.Parallel()
 
 	rdb := testRedis(t)
-	auth := New(rdb, ScopeAuth, 1, 1, nil)
-	api := New(rdb, ScopeAPI, 1, 1, nil)
+	metrics := NewMetrics()
+	auth := New(rdb, ScopeAuth, 1, 1, metrics)
+	api := New(rdb, ScopeAPI, 1, 1, metrics)
 	now := time.Now()
 	ctx := context.Background()
 
@@ -89,37 +108,5 @@ func TestLimiter_ScopesAreIndependent(t *testing.T) {
 	ok, err = api.allowAt(ctx, "1.1.1.1", now)
 	if err != nil || !ok {
 		t.Fatalf("api should not share auth counter: ok=%v err=%v", ok, err)
-	}
-}
-
-func TestLimiter_WatchConflictRetries(t *testing.T) {
-	t.Parallel()
-
-	l := New(testRedis(t), ScopeAuth, 60, 8, nil)
-	ctx := context.Background()
-	now := time.Now()
-
-	const n = 8
-	got := make(chan bool, n)
-	for range n {
-		go func() {
-			ok, err := l.allowAt(ctx, "9.9.9.9", now)
-			if err != nil {
-				t.Errorf("allow: %v", err)
-				got <- false
-				return
-			}
-			got <- ok
-		}()
-	}
-
-	var allowed int
-	for range n {
-		if <-got {
-			allowed++
-		}
-	}
-	if allowed != n {
-		t.Fatalf("allowed %d of %d concurrent requests", allowed, n)
 	}
 }

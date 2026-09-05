@@ -6,6 +6,12 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+type Metrics interface {
+	RegisterRedisBucketConflict(ctx context.Context)
+}
+
+var _ Metrics = (*GatewayMetrics)(nil)
+
 type GatewayMetrics struct {
 	redisBucketConflict metric.Int64Counter
 }
