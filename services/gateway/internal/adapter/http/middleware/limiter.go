@@ -1,34 +1,51 @@
 package middleware
 
 import (
+	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 
 	"github.com/Iposhka54/task-tracker/services/gateway/internal/limiter"
 )
 
-const authAPIPrefix = "/api/v1/auth"
-
-func Limiter(auth, api *limiter.CleanableRateLimiter, next http.Handler) http.Handler {
+func Limiter(auth, api *limiter.Limiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := r.RemoteAddr
-		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-			ip = forwarded
+		if r.URL.Path == HealthPath {
+			next.ServeHTTP(w, r)
+			return
 		}
 
 		crl := api
-		switch {
-		case r.URL.Path == "/health":
-			next.ServeHTTP(w, r)
-			return
-		case strings.HasPrefix(r.URL.Path, authAPIPrefix):
+		if strings.HasPrefix(r.URL.Path, authAPIPrefix) {
 			crl = auth
 		}
-		if !crl.GetLimiter(ip).Allow() {
+
+		ok, err := crl.Allow(r.Context(), clientIP(r))
+		if err != nil {
+			slog.ErrorContext(r.Context(), "rate limit", "error", err)
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !ok {
 			http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
 			return
 		}
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func clientIP(r *http.Request) string {
+	if forwarded := r.Header.Get(xForwardedForHeader); forwarded != "" {
+		if i := strings.IndexByte(forwarded, ','); i >= 0 {
+			forwarded = forwarded[:i]
+		}
+		return strings.TrimSpace(forwarded)
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

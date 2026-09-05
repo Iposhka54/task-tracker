@@ -1,74 +1,123 @@
 package limiter
 
 import (
-	"sync"
+	"context"
+	"errors"
+	"fmt"
+	"math"
+	"strconv"
 	"time"
 
-	"golang.org/x/time/rate"
+	"github.com/Iposhka54/task-tracker/pkg/retry"
+	"github.com/redis/go-redis/v9"
 )
 
-type CleanableRateLimiter struct {
-	limiters        map[string]*rate.Limiter
-	mu              sync.RWMutex
-	rate            rate.Limit
-	burst           int
-	lastAccess      map[string]time.Time
-	cleanupInterval time.Duration
-	maxAge          time.Duration
+const (
+	ScopeAuth = "auth"
+	ScopeAPI  = "api"
+
+	bucketKeyFmt    = "gateway:ratelimit:%s:%s"
+	fieldTokens     = "tokens"
+	fieldLastUpdate = "last_update"
+)
+
+type Limiter struct {
+	rdb     *redis.Client
+	scope   string
+	rate    float64
+	burst   int
+	retrier retry.Retrier
 }
 
-func NewCleanableRateLimiter(rpm float64, burst int, cleanupInterval, maxAge time.Duration) *CleanableRateLimiter {
+func New(rdb *redis.Client, scope string, rpm float64, burst int) *Limiter {
 	if burst < 1 {
 		burst = 1
 	}
-	rl := &CleanableRateLimiter{
-		limiters:        make(map[string]*rate.Limiter),
-		rate:            rate.Limit(rpm / 60),
-		burst:           burst,
-		lastAccess:      make(map[string]time.Time),
-		cleanupInterval: cleanupInterval,
-		maxAge:          maxAge,
+	if rpm <= 0 {
+		rpm = 1
 	}
-
-	go rl.cleanupLoop()
-
-	return rl
-}
-
-func (rl *CleanableRateLimiter) cleanupLoop() {
-	if rl.cleanupInterval <= 0 {
-		return
-	}
-	ticker := time.NewTicker(rl.cleanupInterval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		rl.cleanup()
+	return &Limiter{
+		rdb:   rdb,
+		scope: scope,
+		rate:  rpm / 60,
+		burst: burst,
+		retrier: retry.Retrier{
+			MaxAttempts: 5,
+			Delay:       10 * time.Millisecond,
+			MaxDelay:    100 * time.Millisecond,
+			Backoff:     true,
+			RetryIf: func(err error) bool {
+				return errors.Is(err, redis.TxFailedErr)
+			},
+		},
 	}
 }
 
-func (rl *CleanableRateLimiter) cleanup() {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+func (l *Limiter) Allow(ctx context.Context, key string) (bool, error) {
+	return l.allowAt(ctx, key, time.Now())
+}
 
-	now := time.Now()
-	for ip, lastAccess := range rl.lastAccess {
-		if now.Sub(lastAccess) > rl.maxAge {
-			delete(rl.limiters, ip)
-			delete(rl.lastAccess, ip)
+func (l *Limiter) allowAt(ctx context.Context, key string, now time.Time) (bool, error) {
+	redisKey := fmt.Sprintf(bucketKeyFmt, l.scope, key)
+
+	var allowed bool
+	err := l.retrier.WithRetry(ctx, func() error {
+		ok, err := l.tryAllow(ctx, redisKey, now)
+		if err != nil {
+			return err
 		}
-	}
+		allowed = ok
+		return nil
+	})
+	return allowed, err
 }
 
-func (rl *CleanableRateLimiter) GetLimiter(ip string) *rate.Limiter {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+func (l *Limiter) tryAllow(ctx context.Context, redisKey string, now time.Time) (bool, error) {
+	var allowed bool
+	err := l.rdb.Watch(ctx, func(tx *redis.Tx) error {
+		vals, err := tx.HGetAll(ctx, redisKey).Result()
+		if err != nil {
+			return err
+		}
 
-	limiter, exists := rl.limiters[ip]
-	if !exists {
-		limiter = rate.NewLimiter(rl.rate, rl.burst)
-		rl.limiters[ip] = limiter
+		tokens := float64(l.burst)
+		lastUpdate := now.Unix()
+		if s := vals[fieldTokens]; s != "" {
+			if v, err := strconv.ParseFloat(s, 64); err == nil {
+				tokens = v
+			}
+		}
+		if s := vals[fieldLastUpdate]; s != "" {
+			if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+				lastUpdate = v
+			}
+		}
+
+		elapsed := now.Unix() - lastUpdate
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		tokens = math.Min(float64(l.burst), tokens+float64(elapsed)*l.rate)
+
+		allowed = false
+		if tokens >= 1 {
+			tokens--
+			allowed = true
+		}
+
+		_, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			pipe.HSet(ctx, redisKey, fieldTokens, tokens, fieldLastUpdate, now.Unix())
+			pipe.Expire(ctx, redisKey, time.Minute)
+			return nil
+		})
+
+		if err != nil && errors.Is(err, redis.TxFailedErr) { //watch error, value in bucket was changed
+
+		}
+		return err
+	}, redisKey)
+	if err != nil {
+		return false, err
 	}
-	rl.lastAccess[ip] = time.Now()
-	return limiter
+	return allowed, nil
 }

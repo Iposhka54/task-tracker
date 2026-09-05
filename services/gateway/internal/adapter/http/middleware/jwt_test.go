@@ -17,7 +17,7 @@ func TestJWT_SkipsAuthAndHealth(t *testing.T) {
 	})
 	h := JWT("secret", next)
 
-	for _, path := range []string{"/health", "/api/v1/auth/login", "/api/v1/auth/refresh"} {
+	for _, path := range []string{HealthPath, authAPIPrefix + "/login", authAPIPrefix + "/refresh"} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, nil))
 		if rec.Code != http.StatusNoContent {
@@ -55,7 +55,7 @@ func TestJWT_AcceptsValidToken(t *testing.T) {
 	h := JWT(secret, next)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
-	req.Header.Set("Authorization", "Bearer "+raw)
+	req.Header.Set(authorizationHeader, "Bearer "+raw)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
@@ -78,7 +78,7 @@ func TestJWT_RejectsExpiredAndWrongSecret(t *testing.T) {
 
 	for _, token := range []string{expired, foreign, "not-a-jwt"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/tasks", nil)
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set(authorizationHeader, "Bearer "+token)
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {

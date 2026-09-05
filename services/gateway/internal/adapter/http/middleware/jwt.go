@@ -8,6 +8,15 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+const (
+	HealthPath        = "/health"
+	UserIDMetadataKey = "user-id"
+
+	authAPIPrefix       = "/api/v1/auth"
+	authorizationHeader = "Authorization"
+	xForwardedForHeader = "X-Forwarded-For"
+)
+
 type ctxKey int
 
 const userIDKey ctxKey = iota
@@ -25,7 +34,7 @@ func JWT(secret string, next http.Handler) http.Handler {
 			return
 		}
 
-		raw, ok := bearerToken(r.Header.Get("Authorization"))
+		raw, ok := bearerToken(r.Header.Get(authorizationHeader))
 		if !ok {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
@@ -43,7 +52,7 @@ func JWT(secret string, next http.Handler) http.Handler {
 }
 
 func skipJWT(path string) bool {
-	return path == "/health" || strings.HasPrefix(path, authAPIPrefix)
+	return path == HealthPath || strings.HasPrefix(path, authAPIPrefix)
 }
 
 func bearerToken(header string) (string, bool) {

@@ -13,6 +13,7 @@ import (
 
 	authpb "github.com/Iposhka54/task-tracker/pkg/api/auth"
 	pkglogger "github.com/Iposhka54/task-tracker/pkg/logger"
+	pkgredis "github.com/Iposhka54/task-tracker/pkg/redis"
 	"github.com/Iposhka54/task-tracker/pkg/telemetry"
 	"github.com/Iposhka54/task-tracker/services/gateway/internal/adapter/http/middleware"
 	"github.com/Iposhka54/task-tracker/services/gateway/internal/config"
@@ -57,6 +58,13 @@ func main() {
 		cancel()
 	}()
 
+	rdb, err := pkgredis.New(ctx, cfg.Redis)
+	if err != nil {
+		log.Error("connect redis", "error", err)
+		os.Exit(1)
+	}
+	defer rdb.Close()
+
 	dialOpts := []grpc.DialOption{
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler(
 			otelgrpc.WithTracerProvider(otel.GetTracerProvider()),
@@ -80,7 +88,7 @@ func main() {
 	gwMux := runtime.NewServeMux(
 		runtime.WithMetadata(func(ctx context.Context, _ *http.Request) metadata.MD {
 			if uid := middleware.UserIDFromContext(ctx); uid != "" {
-				return metadata.Pairs("user-id", uid)
+				return metadata.Pairs(middleware.UserIDMetadataKey, uid)
 			}
 			return nil
 		}),
@@ -92,23 +100,13 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET "+middleware.HealthPath, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.Handle("/", gwMux)
 
-	authLimiter := limiter.NewCleanableRateLimiter(
-		cfg.RateLimit.Auth.RPM,
-		cfg.RateLimit.Auth.Burst,
-		cfg.RateLimit.CleanupInterval,
-		cfg.RateLimit.MaxAge,
-	)
-	apiLimiter := limiter.NewCleanableRateLimiter(
-		cfg.RateLimit.API.RPM,
-		cfg.RateLimit.API.Burst,
-		cfg.RateLimit.CleanupInterval,
-		cfg.RateLimit.MaxAge,
-	)
+	authLimiter := limiter.New(rdb, limiter.ScopeAuth, cfg.RateLimit.Auth.RPM, cfg.RateLimit.Auth.Burst)
+	apiLimiter := limiter.New(rdb, limiter.ScopeAPI, cfg.RateLimit.API.RPM, cfg.RateLimit.API.Burst)
 	handler := middleware.Limiter(authLimiter, apiLimiter, middleware.JWT(cfg.JWT.Secret, middleware.RequestLog(
 		otelhttp.NewHandler(mux, serviceName,
 			otelhttp.WithTracerProvider(otel.GetTracerProvider()),
