@@ -20,7 +20,7 @@ func testRedis(t *testing.T) *redis.Client {
 func TestLimiter_BurstThenDeny(t *testing.T) {
 	t.Parallel()
 
-	l := New(testRedis(t), ScopeAuth, 3, 3)
+	l := New(testRedis(t), ScopeAuth, 3, 3, nil)
 	now := time.Now()
 	ctx := context.Background()
 
@@ -54,7 +54,7 @@ func TestLimiter_BurstThenDeny(t *testing.T) {
 func TestLimiter_NewWindow(t *testing.T) {
 	t.Parallel()
 
-	l := New(testRedis(t), ScopeAPI, 1, 1)
+	l := New(testRedis(t), ScopeAPI, 1, 1, nil)
 	now := time.Now()
 	ctx := context.Background()
 
@@ -77,8 +77,8 @@ func TestLimiter_ScopesAreIndependent(t *testing.T) {
 	t.Parallel()
 
 	rdb := testRedis(t)
-	auth := New(rdb, ScopeAuth, 1, 1)
-	api := New(rdb, ScopeAPI, 1, 1)
+	auth := New(rdb, ScopeAuth, 1, 1, nil)
+	api := New(rdb, ScopeAPI, 1, 1, nil)
 	now := time.Now()
 	ctx := context.Background()
 
@@ -95,7 +95,7 @@ func TestLimiter_ScopesAreIndependent(t *testing.T) {
 func TestLimiter_WatchConflictRetries(t *testing.T) {
 	t.Parallel()
 
-	l := New(testRedis(t), ScopeAuth, 60, 8)
+	l := New(testRedis(t), ScopeAuth, 60, 8, nil)
 	ctx := context.Background()
 	now := time.Now()
 

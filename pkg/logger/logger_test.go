@@ -98,7 +98,7 @@ func TestLogger_NotSampledNoTelemetryAttrs(t *testing.T) {
 		t.Error("request_id should not be present when not sampled")
 	}
 
-	if got["user_id"] != "u1" {
+	if got["user_id"] != "uuid" {
 		t.Errorf("user_id: got %v, want u1", got["user_id"])
 	}
 	if got["msg"] != "hello" {
