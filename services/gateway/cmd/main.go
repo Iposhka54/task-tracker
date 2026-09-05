@@ -112,8 +112,8 @@ func main() {
 	})
 	mux.Handle("/", gwMux)
 
-	authLimiter := limiter.New(rdb, limiter.ScopeAuth, cfg.RateLimit.Auth.RPM, cfg.RateLimit.Auth.Burst)
-	apiLimiter := limiter.New(rdb, limiter.ScopeAPI, cfg.RateLimit.API.RPM, cfg.RateLimit.API.Burst)
+	authLimiter := limiter.New(rdb, limiter.ScopeAuth, cfg.RateLimit.Auth.RPM, cfg.RateLimit.Auth.Burst, metrics)
+	apiLimiter := limiter.New(rdb, limiter.ScopeAPI, cfg.RateLimit.API.RPM, cfg.RateLimit.API.Burst, metrics)
 	handler := middleware.Limiter(authLimiter, apiLimiter, middleware.JWT(cfg.JWT.Secret, middleware.RequestLog(
 		otelhttp.NewHandler(mux, serviceName,
 			otelhttp.WithTracerProvider(otel.GetTracerProvider()),
