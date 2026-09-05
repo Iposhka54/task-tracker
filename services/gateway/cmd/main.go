@@ -121,6 +121,25 @@ func main() {
 			otelhttp.WithPropagators(otel.GetTextMapPropagator()),
 		),
 	))
+
+	handler = middleware.Chain(
+		func(next http.Handler) http.Handler {
+			return otelhttp.NewHandler(next, serviceName,
+				otelhttp.WithTracerProvider(otel.GetTracerProvider()),
+				otelhttp.WithMeterProvider(otel.GetMeterProvider()),
+				otelhttp.WithPropagators(otel.GetTextMapPropagator()),
+			)
+		},
+		middleware.WithTracing("log-middleware", func(next http.Handler) http.Handler {
+			return middleware.RequestLog(next)
+		}),
+		middleware.WithTracing("limiter-middleware", func(next http.Handler) http.Handler {
+			return middleware.Limiter(authLimiter, apiLimiter, next)
+		}),
+		middleware.WithTracing("jwt-middleware", func(next http.Handler) http.Handler {
+			return middleware.JWT(cfg.JWT.Secret, next)
+		}),
+	)(mux)
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler:      handler,
