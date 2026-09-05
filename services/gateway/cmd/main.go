@@ -114,13 +114,13 @@ func main() {
 
 	authLimiter := limiter.New(rdb, limiter.ScopeAuth, cfg.RateLimit.Auth.RPM, cfg.RateLimit.Auth.Burst, metrics)
 	apiLimiter := limiter.New(rdb, limiter.ScopeAPI, cfg.RateLimit.API.RPM, cfg.RateLimit.API.Burst, metrics)
-	handler := middleware.Limiter(authLimiter, apiLimiter, middleware.JWT(cfg.JWT.Secret, middleware.RequestLog(
-		otelhttp.NewHandler(mux, serviceName,
+	handler := middleware.Limiter(authLimiter, apiLimiter, middleware.JWT(cfg.JWT.Secret,
+		otelhttp.NewHandler(middleware.RequestLog(mux), serviceName,
 			otelhttp.WithTracerProvider(otel.GetTracerProvider()),
 			otelhttp.WithMeterProvider(otel.GetMeterProvider()),
 			otelhttp.WithPropagators(otel.GetTextMapPropagator()),
 		),
-	)))
+	))
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.HTTPPort),
 		Handler:      handler,
